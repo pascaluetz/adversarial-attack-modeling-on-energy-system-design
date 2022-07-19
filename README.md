@@ -1,1 +1,2 @@
-# adversarial-attack-modeling-on-energy-system-design
+# Adversarial attack modeling on energy system design
+This is all code to create an adversarial attack on an energy system model. Published in ...
