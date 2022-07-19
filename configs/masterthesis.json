@@ -1,0 +1,22 @@
+{
+    "attacked_input": {
+        "pv_availability": 0.5,
+        "demand": 0.5
+    },
+    "attack_settings": {
+        "attack_type": "absolute",
+        "objective": "quadratic",
+        "target_capex": 751.32
+    },
+    "algorithm_settings": {
+        "warmstart": true,
+        "mip_gap": 1000000000
+    },
+    "additional_constraints": {
+        "no_negative_demand": true,
+        "no_negative_pv_availability": true,
+        "pv_availability_smaller_one": true,
+        "sum_demand_zero": true,
+        "sum_pv_availability_zero": true
+    }
+}
