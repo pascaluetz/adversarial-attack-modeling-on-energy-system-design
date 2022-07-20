@@ -16,12 +16,12 @@ availability_pv = []
 DemandVal = []
 
 # open time series and add them to array
-with open("../time_series/TS_PVAvail.csv", "r") as file:
+with open("../time_series/original_pv_availability.csv", "r") as file:
     reader = csv.reader(file, delimiter="\n")
     for row in reader:
         availability_pv.append(float(row[0]))
 
-with open("../time_series/TS_Demand.csv", "r") as file:
+with open("../time_series/original_demand.csv", "r") as file:
     reader = csv.reader(file, delimiter="\n")
     for row in reader:
         DemandVal.append(float(row[0]))
@@ -51,10 +51,10 @@ for hour in hours:
     DemandVal_24h.append(value_demand)
 
 # write both datasets in csv
-with open("../time_series/TS_PVAvail_24h.csv", "w", newline="") as file:
+with open("../time_series/original_pv_availability_24h.csv", "w", newline="") as file:
     writer = csv.writer(file)
     writer.writerows(extractDigits(availability_pv_24h))
 
-with open("../time_series/TS_Demand_24h.csv", "w", newline="") as file:
+with open("../time_series/original_demand_24h.csv", "w", newline="") as file:
     writer = csv.writer(file)
     writer.writerows(extractDigits(DemandVal_24h))

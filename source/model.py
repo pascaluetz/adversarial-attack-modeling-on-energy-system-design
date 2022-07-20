@@ -127,10 +127,8 @@ def HouseModel(
 def run():
     start = time.time()
     settings = getSettings()
-    pv_availability = read_csv("../time_series/TS_PVAvail.csv")
-    demand = read_csv("../time_series/demand_bdew.csv")
-    # pv_availability = read_csv("../../../time_series/new_solar.csv")
-    # demand = read_csv("../../../time_series/new_demand.csv")
+    pv_availability = read_csv("../time_series/original_pv_availability.csv")
+    demand = read_csv("../time_series/bdew_demand.csv")
     solution = HouseModel(settings, pv_availability, demand)
     end = time.time()
 

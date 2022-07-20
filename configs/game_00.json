@@ -4,7 +4,7 @@
         "demand": 0.5
     },
     "attack_settings": {
-        "attack_type": "absolute",
+        "attack_type": "relative",
         "objective": "quadratic",
         "target_capex": 751.32
     },

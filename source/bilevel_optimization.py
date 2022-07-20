@@ -95,6 +95,7 @@ class Algorithm:
         end_time = time.time()
         execution_time = end_time - start_time
         self.create_statistics(model)  # original time series + battery usage + energy pv
+        self.save_output()
         self.print_output(model, execution_time, iteration_count)
 
     def calculate_iteration(self, warm_binaries, Cap_PV_0):
@@ -184,31 +185,40 @@ class Algorithm:
         # pypsa.l_objective(model, objective, pypsa.minimize)
 
         # QUADRATIC OBJECTIVE
-        # calculating scaling coefficients
-        b_numpy = []
-        col = self.all_variables["CapacityPV"]
-        for index in self.range_limeqpv_b:
-            b_numpy.append(-self.A[index, col])
-        b_numpy = np.array(b_numpy)
 
-        d_numpy = []
-        for index in self.range_energyeq_d:
-            d_numpy.append(self.d[index])
-        d_numpy = np.array(d_numpy)
+        if self.attack_type == "absolute":
+            # calculating scaling coefficients
+            b_numpy = []
+            col = self.all_variables["CapacityPV"]
+            for index in self.range_limeqpv_b:
+                b_numpy.append(-self.A[index, col])
+            b_numpy = np.array(b_numpy)
 
-        # initialize objective
-        model.size_delta = pyo.Objective(
-            expr=(1 - self.weight_pv_availability)
-            * sum(
-                ((model.deltab[i] - b_numpy.min()) / (b_numpy.max() - b_numpy.min())) ** 2 for i in self.range_limeqpv_b
+            d_numpy = []
+            for index in self.range_energyeq_d:
+                d_numpy.append(self.d[index])
+            d_numpy = np.array(d_numpy)
+
+            model.size_delta = pyo.Objective(
+                expr=(1 - self.weight_pv_availability)
+                * sum(
+                    ((model.deltab[i] - b_numpy.min()) / (b_numpy.max() - b_numpy.min())) ** 2
+                    for i in self.range_limeqpv_b
+                )
+                + (1 - self.weight_demand)
+                * sum(
+                    ((model.deltad[i] - d_numpy.min()) / (d_numpy.max() - d_numpy.min())) ** 2
+                    for i in self.range_energyeq_d
+                ),
+                sense=pyo.minimize,
             )
-            + (1 - self.weight_demand)
-            * sum(
-                ((model.deltad[i] - d_numpy.min()) / (d_numpy.max() - d_numpy.min())) ** 2
-                for i in self.range_energyeq_d
-            ),
-            sense=pyo.minimize,
-        )
+
+        elif self.attack_type == "relative":
+            model.size_delta = pyo.Objective(
+                expr=(1 - self.weight_pv_availability) * sum(model.deltab[i] ** 2 for i in self.range_limeqpv_b)
+                + (1 - self.weight_demand) * sum(model.deltad[i] ** 2 for i in self.range_energyeq_d),
+                sense=pyo.minimize,
+            )
 
         # # MINIMIZE MAX FUNCTION
         # objective = pypsa.LExpression([(1, model.max_deltad)])
@@ -298,7 +308,7 @@ class Algorithm:
             constraints[col] = pypsa.LConstraint(lhs, "==")
         pypsa.l_constraint(model, "LagrangianEQ", constraints, range(len(self.all_variables)))
 
-        # add additional constraints
+        # additional constraints
         if self.no_negative_demand:
             constraints = {}
             for index in self.range_energyeq_d:
@@ -449,15 +459,19 @@ class Algorithm:
     # checks if the config is valid and adjusts weightings of the time series
     def check_valid_params(self):
         if self.weight_pv_availability > 1:
-            raise ValueError("PV availability weight must be less than one")
+            raise ValueError(
+                "PV availability weight must be equal or less than one (0 - low weighting, 1 - high weighting)"
+            )
         if self.weight_pv_availability < 0:
-            raise ValueError("PV availability weight must be greater than zero")
+            raise ValueError(
+                "PV availability weight must be equal or greater than zero (0 - low weighting, 1 - high weighting)"
+            )
         if self.weight_demand > 1:
-            raise ValueError("Demand weight must be less than one")
+            raise ValueError("Demand weight must be equal or less than one (0 - low weighting, 1 - high weighting)")
         if self.weight_pv_availability < 0:
-            raise ValueError("Demand weight must be greater than zero")
+            raise ValueError("Demand weight must be equal or greater than zero (0 - low weighting, 1 - high weighting)")
         if self.weight_pv_availability + self.weight_demand != 1:
-            raise ValueError("Sum of the weights must be one")
+            raise ValueError("Sum of the weights must be one (0 - low weighting, 1 - high weighting)")
 
         # switching a one to a zero and vice versa to ensure that it will be correctly used in objective function
         if self.weight_pv_availability == 0 or self.weight_pv_availability == 1:
@@ -542,8 +556,8 @@ class Algorithm:
 
     def create_statistics(self, model):
         # get original time series
-        self.orignal_pv_availability = read_csv("time_series/TS_PVAvail.csv")
-        self.original_demand = read_csv("time_series/demand_bdew.csv")
+        self.orignal_pv_availability = read_csv("time_series/original_pv_availability.csv")
+        self.original_demand = read_csv("time_series/bdew_demand.csv")
 
         # calculate deltas
         self.delta_pv_availability = self.attacked_pv_availability - self.orignal_pv_availability
@@ -570,6 +584,14 @@ class Algorithm:
             energy_pv.append(pyo.value(model.x[index]))
 
         self.energy_pv = np.array(energy_pv)
+
+    def save_output(self):
+        np.savetxt("source/output/delta_pv_availability.csv", self.delta_pv_availability, delimiter=",")
+        np.savetxt("source/output/delta_demand.csv", self.delta_demand, delimiter=",")
+        np.savetxt("source/output/attacked_pv_availability.csv", self.attacked_pv_availability, delimiter=",")
+        np.savetxt("source/output/attacked_demand.csv", self.attacked_demand, delimiter=",")
+        np.savetxt("source/output/battery_usage.csv", self.battery_usage, delimiter=",")
+        np.savetxt("source/output/energy_pv.csv", self.energy_pv, delimiter=",")
 
     def print_output(self, model, execution_time, iteration_count):
         index_pv = self.all_variables["CapacityPV"]
@@ -672,3 +694,35 @@ class Algorithm:
         elif self.attack_type == "relative":
             plt.xlabel(r"$\Delta \mathbf{availability}_{PV}^{day}$ [%]")
             plt.ylabel(r"$\Delta \mathbf{demand}^{day}$ [%]")
+
+    def gen_plot_battery_usage(self):
+        plt.figure()
+        plt.plot(self.battery_usage, label="Battery usage per hour", linestyle="solid")
+        plt.xlabel("Time [h]")
+        plt.ylabel("Battery usage [kWh]")
+        plt.title("Battery usage per hour")
+        plt.legend(loc=0)
+
+    def gen_plot_energy_pv(self):
+        plt.figure()
+        plt.plot(self.energy_pv, label="PV energy per hour", linestyle="solid")
+        plt.xlabel("Time [h]")
+        plt.ylabel("PV energy [kW]")
+        plt.title("PV energy per hour")
+        plt.legend(loc=0)
+
+    def gen_plot_energypv_battery(self):
+        fig, ax1 = plt.subplots()
+
+        ax1.set_xlabel("Time [h]")
+        ax1.set_ylabel("Battery usage [kWh]")
+        ax1.plot(self.battery_usage, label="Battery usage per hour", linestyle="solid", color="tab:blue")
+
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("PV Energy [kW]")
+        ax2.plot(self.energy_pv, label="PV Energy per hour", linestyle="solid", color="tab:orange")
+
+        ax1.legend(loc=0)
+        ax2.legend(loc=0)
+
+        plt.title("Battery usage and PV energy per hour")
