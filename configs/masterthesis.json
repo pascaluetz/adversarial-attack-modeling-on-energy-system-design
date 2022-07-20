@@ -1,7 +1,7 @@
 {
     "weights_input": {
-        "pv_availability": 1,
-        "demand": 0
+        "pv_availability": 0.5,
+        "demand": 0.5
     },
     "attack_settings": {
         "attack_type": "absolute",
