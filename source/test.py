@@ -20,9 +20,15 @@ class Testclass:
         self.sum_pv_availability_zero = config["additional_constraints"]["sum_pv_availability_zero"]
 
     def script(self):
-        print(self.target_capex - 1e-4)
-        print(1e-4)
+        if (
+            not type(self.no_negative_pv_availability) is bool
+            or not type(self.no_negative_demand) is bool
+            or not type(self.pv_availability_smaller_one) is bool
+            or not type(self.sum_pv_availability_zero) is bool
+            or not type(self.sum_demand_zero) is bool
+        ):
+            raise TypeError("Additional constraint variables must be boolean variables")
 
 
-test = Testclass("../configs/masterthesis.json")
+test = Testclass("../configs/game_00.json")
 test.script()

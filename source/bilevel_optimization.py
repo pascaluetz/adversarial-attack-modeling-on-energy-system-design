@@ -53,11 +53,13 @@ class Algorithm:
         self.big_m = config["algorithm_settings"]["big_m"]
         self.warmstart = config["algorithm_settings"]["warmstart"]
         self.mip_gap = config["algorithm_settings"]["mip_gap"]
-        self.no_negative_demand = config["additional_constraints"]["no_negative_demand"]
         self.no_negative_pv_availability = config["additional_constraints"]["no_negative_pv_availability"]
+        self.no_negative_demand = config["additional_constraints"]["no_negative_demand"]
         self.pv_availability_smaller_one = config["additional_constraints"]["pv_availability_smaller_one"]
-        self.sum_demand_zero = config["additional_constraints"]["sum_demand_zero"]
         self.sum_pv_availability_zero = config["additional_constraints"]["sum_pv_availability_zero"]
+        self.sum_demand_zero = config["additional_constraints"]["sum_demand_zero"]
+
+        self.check_valid_params()
 
         # initialize model matrices of inner optimization problem
         model_parameters = open("source/model.mps", "r").readlines()
@@ -81,7 +83,6 @@ class Algorithm:
 
         # get model data including warm binaries, Capacity_PV,0 and initial capex
         warm_binaries, Cap_PV_0, capex = self.get_model_data()
-        print("Capex ist: " + str(capex))
 
         iteration_count = 0
         while not self.check_target(capex):
@@ -89,13 +90,12 @@ class Algorithm:
             self.create_timeseries(model)
             self.update_model()
             warm_binaries, Cap_PV_0, capex = self.get_model_data()
-            print("Capex ist: " + str(capex))
             iteration_count += 1
 
         end_time = time.time()
         execution_time = end_time - start_time
-        self.print_output(model, execution_time, iteration_count)
         self.create_statistics(model)  # original time series + battery usage + energy pv
+        self.print_output(model, execution_time, iteration_count)
 
     def calculate_iteration(self, warm_binaries, Cap_PV_0):
         """
@@ -135,7 +135,7 @@ class Algorithm:
         end_range = self.A_row_names["c_u_limEQpv(8760)_"] + 1
         self.range_limeqpv_b = range(start_range, end_range)
 
-        if self.weight_pv_availability != 0:
+        if self.weight_pv_availability != 1:
             changed_deltas += end_range - start_range
             col = self.all_variables["CapacityPV"]
             if self.attack_type == "absolute":
@@ -152,7 +152,7 @@ class Algorithm:
         start_range = self.H_row_names["c_e_EnergyEQ(1)_"]
         end_range = self.H_row_names["c_e_EnergyEQ(8760)_"] + 1
         self.range_energyeq_d = range(start_range, end_range)
-        if self.weight_demand != 0:
+        if self.weight_demand != 1:
             changed_deltas += end_range - start_range
 
             if self.attack_type == "absolute":
@@ -349,7 +349,7 @@ class Algorithm:
         # solve problem
         solver = SolverFactory("cplex")
         solver.options["mip_tolerances_absmipgap"] = self.mip_gap
-        solver.solve(model, warmstart=True, tee=True)
+        solver.solve(model, warmstart=self.warmstart, tee=True)
 
         return model
 
@@ -446,10 +446,45 @@ class Algorithm:
         else:
             return False
 
-    # evtl. auch draußen wie bei Johnny
+    # checks if the config is valid and adjusts weightings of the time series
     def check_valid_params(self):
-        print("Check Params")
-        # Gewichtungen zwischen 0 und 1 und zusammen 1
+        if self.weight_pv_availability > 1:
+            raise ValueError("PV availability weight must be less than one")
+        if self.weight_pv_availability < 0:
+            raise ValueError("PV availability weight must be greater than zero")
+        if self.weight_demand > 1:
+            raise ValueError("Demand weight must be less than one")
+        if self.weight_pv_availability < 0:
+            raise ValueError("Demand weight must be greater than zero")
+        if self.weight_pv_availability + self.weight_demand != 1:
+            raise ValueError("Sum of the weights must be one")
+
+        # switching a one to a zero and vice versa to ensure that it will be correctly used in objective function
+        if self.weight_pv_availability == 0 or self.weight_pv_availability == 1:
+            self.weight_pv_availability = 1 - self.weight_pv_availability
+        if self.weight_demand == 0 or self.weight_demand == 1:
+            self.weight_demand = 1 - self.weight_demand
+
+        if self.attack_type != "absolute" and self.attack_type != "relative":
+            raise ValueError("Attack type has to be 'absolute' or 'relative'")
+        if self.objective != "absolute" and self.objective != "quadratic" and self.objective != "minimizemax":
+            raise ValueError("Objective type has to be 'absolute', 'quadratic' or 'minimizemax'")
+        if not isinstance(self.target_capex, (int, float)):
+            raise TypeError("Target of CAPEX has to be an int or a float")
+        if not isinstance(self.big_m, (int, float)):
+            raise TypeError("Big M has to be an int or a float")
+        if not type(self.warmstart) is bool:
+            raise TypeError("Warmstart has to be a boolean variable")
+        if not isinstance(self.mip_gap, (int, float)):
+            raise TypeError("MIP gap has to be an int or a float")
+        if (
+            not type(self.no_negative_pv_availability) is bool
+            or not type(self.no_negative_demand) is bool
+            or not type(self.pv_availability_smaller_one) is bool
+            or not type(self.sum_pv_availability_zero) is bool
+            or not type(self.sum_demand_zero) is bool
+        ):
+            raise TypeError("Additional constraint variables must be boolean variables")
 
     # Time Series berechnen (so wie original bei Demand teilen) und ausgeben/speichern für weiterverarbeitung
     def create_timeseries(self, model):
@@ -557,7 +592,7 @@ class Algorithm:
         plt.ylabel(r"$\mathbf{availability}_{PV}$ [%]")
         plt.title("Original PV availability and attacked PV availability per hour")
         plt.legend()
-        # plt.xlim(1296, 1464)
+        # plt.xlim(1296, 1464)  # representative week in February
 
         plt.figure()
         plt.plot(self.demand_total * self.attacked_demand, label=r"Attacked $\mathbf{demand}$", linestyle="solid")
@@ -566,7 +601,7 @@ class Algorithm:
         plt.ylabel(r"$\mathbf{demand}$ [kWh]")
         plt.title("Original demand and attacked demand per hour")
         plt.legend()
-        # plt.xlim(1296, 1464)
+        # plt.xlim(1296, 1464)  # representative week in February
 
     def gen_plot_violin(self):
         # Violin-plot of original PV availability without zero
@@ -587,16 +622,24 @@ class Algorithm:
         # Violin-plot of attack variable \Delta PV availability
         plt.figure()
         plt.title(r"Violin-plot of attack variable $\Delta \mathbf{availability}_{PV}$")
-        ax = sns.violinplot(data=self.delta_pv_availability * 100, orient="v")
+        if self.attack_type == "absolute":
+            ax = sns.violinplot(data=self.delta_pv_availability * 100, orient="v")
+            ax.set(ylabel=r"$\Delta \mathbf{availability}_{PV}$ [p.p.]")
+        elif self.attack_type == "relative":
+            ax = sns.violinplot(data=self.delta_pv_availability, orient="v")
+            ax.set(ylabel=r"$\Delta \mathbf{availability}_{PV}$ [%]")
         ax.set_xticklabels([r"Attack variable $\Delta \mathbf{availability}_{PV}$"])
-        ax.set(ylabel=r"$\Delta \mathbf{availability}_{PV}$ [p.p.]")
 
         # Violin-plot of attack variable \Delta demand
         plt.figure()
         plt.title(r"Violin-plot of attack variable $\Delta \mathbf{demand}$")
-        ax = sns.violinplot(data=self.delta_demand * 1000, orient="v")
+        if self.attack_type == "absolute":
+            ax = sns.violinplot(data=self.delta_demand * 1000, orient="v")
+            ax.set(ylabel=r"$\Delta \mathbf{demand}$ [Wh]")
+        elif self.attack_type == "relative":
+            ax = sns.violinplot(data=self.delta_demand, orient="v")
+            ax.set(ylabel=r"$\Delta \mathbf{demand}$ [%]")
         ax.set_xticklabels([r"Attack variable $\Delta \mathbf{demand}$"])
-        ax.set(ylabel=r"$\Delta \mathbf{demand}$ [Wh]")
 
     def gen_plot_regression(self):
         # delete night-time data
@@ -606,8 +649,11 @@ class Algorithm:
         delta_pv_availability_day = np.delete(self.delta_pv_availability, indices)
         delta_demand_day = np.delete(self.delta_demand, indices)
 
-        delta_pv_availability_day = delta_pv_availability_day * 100  # convert from percent into p.p.
-        delta_demand_day = delta_demand_day * 1000  # convert from kWh to Wh
+        if self.attack_type == "absolute":
+            delta_pv_availability_day = delta_pv_availability_day * 100  # convert from percent into p.p.
+            delta_demand_day = delta_demand_day * 1000  # convert from kWh to Wh
+        elif self.attack_type == "relative":
+            pass
 
         regression = sm.OLS(delta_demand_day, sm.add_constant(delta_pv_availability_day)).fit()
         print(regression.summary())
@@ -620,5 +666,9 @@ class Algorithm:
             regression.params[0] + regression.params[1] * delta_pv_availability_day,
             color="orange",
         )
-        plt.xlabel(r"$\Delta \mathbf{availability}_{PV}^{day}$ [p.p.]")
-        plt.ylabel(r"$\Delta \mathbf{demand}^{day}$ [Wh]")
+        if self.attack_type == "absolute":
+            plt.xlabel(r"$\Delta \mathbf{availability}_{PV}^{day}$ [p.p.]")
+            plt.ylabel(r"$\Delta \mathbf{demand}^{day}$ [Wh]")
+        elif self.attack_type == "relative":
+            plt.xlabel(r"$\Delta \mathbf{availability}_{PV}^{day}$ [%]")
+            plt.ylabel(r"$\Delta \mathbf{demand}^{day}$ [%]")
