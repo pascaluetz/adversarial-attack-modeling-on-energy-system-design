@@ -42,16 +42,16 @@ def read_csv(csv_name):
     return array
 
 
-bdew_demand = read_csv("time_series/bdew_demand.csv")
-bdew_demand_24h = read_csv("time_series/bdew_demand_24h.csv")
-original_demand = read_csv("time_series/original_demand.csv")
-original_demand_24h = read_csv("time_series/original_demand_24h.csv")
-original_pv_availability = read_csv("time_series/original_pv_availability.csv")
-original_pv_availability_24h = read_csv("time_series/original_pv_availability_24h.csv")
+bdew_demand = read_csv("../time_series/bdew_demand.csv")
+bdew_demand_24h = read_csv("../time_series/bdew_demand_24h.csv")
+original_demand = read_csv("../time_series/original_demand.csv")
+original_demand_24h = read_csv("../time_series/original_demand_24h.csv")
+original_pv_availability = read_csv("../time_series/original_pv_availability.csv")
+original_pv_availability_24h = read_csv("../time_series/original_pv_availability_24h.csv")
 
-np.savetxt("time_series/bdew_demand.csv", bdew_demand, delimiter=",")
-np.savetxt("time_series/bdew_demand_24h.csv", bdew_demand_24h, delimiter=",")
-np.savetxt("time_series/original_demand.csv", original_demand, delimiter=",")
-np.savetxt("time_series/original_demand_24h.csv", original_demand_24h, delimiter=",")
-np.savetxt("time_series/original_pv_availability.csv", original_pv_availability, delimiter=",")
-np.savetxt("time_series/original_pv_availability_24h.csv", original_pv_availability_24h, delimiter=",")
+np.savetxt("../time_series/bdew_demand.csv", bdew_demand, delimiter=",")
+np.savetxt("../time_series/bdew_demand_24h.csv", bdew_demand_24h, delimiter=",")
+np.savetxt("../time_series/original_demand.csv", original_demand, delimiter=",")
+np.savetxt("../time_series/original_demand_24h.csv", original_demand_24h, delimiter=",")
+np.savetxt("../time_series/original_pv_availability.csv", original_pv_availability, delimiter=",")
+np.savetxt("../time_series/original_pv_availability_24h.csv", original_pv_availability_24h, delimiter=",")

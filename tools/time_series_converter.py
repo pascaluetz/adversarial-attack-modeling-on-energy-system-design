@@ -3,34 +3,17 @@ Converts PV availability and demand year times series to the average of each hou
 time series for a smaller model.
 """
 
-import csv
+import numpy as np
 
-
-# extract digits from list
-def extractDigits(lst):
-    return [[el] for el in lst]
-
-
-# create empty arrays
-availability_pv = []
-DemandVal = []
-
-# open time series and add them to array
-with open("../time_series/original_pv_availability.csv", "r") as file:
-    reader = csv.reader(file, delimiter="\n")
-    for row in reader:
-        availability_pv.append(float(row[0]))
-
-with open("../time_series/original_demand.csv", "r") as file:
-    reader = csv.reader(file, delimiter="\n")
-    for row in reader:
-        DemandVal.append(float(row[0]))
+# load year time series
+availability_pv = np.loadtxt("../time_series/original_pv_availability.csv")
+DemandVal = np.loadtxt("../time_series/original_demand.csv")
 
 # set ranges
 hours = range(24)
 days = range(365)
 
-# create empty arrays for 24h time series
+# create empty lists for 24h time series
 availability_pv_24h = []
 DemandVal_24h = []
 
@@ -50,11 +33,9 @@ for hour in hours:
     availability_pv_24h.append(value_availability)
     DemandVal_24h.append(value_demand)
 
-# write both datasets in csv
-with open("../time_series/original_pv_availability_24h.csv", "w", newline="") as file:
-    writer = csv.writer(file)
-    writer.writerows(extractDigits(availability_pv_24h))
+availability_pv_24h = np.array(availability_pv_24h)
+DemandVal_24h = np.array(DemandVal_24h)
 
-with open("../time_series/original_demand_24h.csv", "w", newline="") as file:
-    writer = csv.writer(file)
-    writer.writerows(extractDigits(DemandVal_24h))
+# write both datasets in csv
+np.savetxt("../time_series/original_pv_availability_24h.csv", availability_pv_24h, delimiter=",")
+np.savetxt("../time_series/original_demand_24h.csv", DemandVal_24h, delimiter=",")

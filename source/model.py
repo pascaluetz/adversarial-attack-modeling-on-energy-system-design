@@ -13,9 +13,9 @@ model.py from Jonas model in an adjusted version:
 - implementation of variable SellEnergy, parameter sell_price and updating objective function and EnergyEQ
 """
 
-import csv
 import time
 
+import numpy as np
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
@@ -31,19 +31,6 @@ def getSettings():
         "dem_tot": 3500,  # kWh/Year
     }
     return settingsDict
-
-
-# reads csv and returns it as array
-def read_csv(csv_name):
-    array = []
-
-    with open(csv_name, "r") as file:
-        reader = csv.reader(file, delimiter="\n")
-        for row in reader:
-            array.append(float(row[0]))
-
-    array = dict(enumerate(array))
-    return array
 
 
 # create HouseModel
@@ -127,8 +114,8 @@ def HouseModel(
 def run():
     start = time.time()
     settings = getSettings()
-    pv_availability = read_csv("../time_series/original_pv_availability.csv")
-    demand = read_csv("../time_series/bdew_demand.csv")
+    pv_availability = np.loadtxt("../time_series/original_pv_availability.csv")
+    demand = np.loadtxt("../time_series/bdew_demand.csv")
     solution = HouseModel(settings, pv_availability, demand)
     end = time.time()
 

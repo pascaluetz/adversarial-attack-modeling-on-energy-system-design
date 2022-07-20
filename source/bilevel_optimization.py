@@ -5,7 +5,6 @@ absolute mip gap to the optimal solution
 - In function run it is possible to adjust the output data of the model
 """
 
-import csv
 import json
 import time
 
@@ -19,18 +18,6 @@ from pyomo.opt import SolverFactory
 from scipy.sparse import csr_matrix
 
 from tools import convert_mps_to_array as converter
-
-
-def read_csv(csv_name):
-    array = []
-
-    with open(csv_name, "r") as file:
-        reader = csv.reader(file, delimiter="\n")
-        for row in reader:
-            array.append(float(row[0]))
-
-    array = np.array(array)
-    return array
 
 
 class Algorithm:
@@ -556,8 +543,8 @@ class Algorithm:
 
     def create_statistics(self, model):
         # get original time series
-        self.orignal_pv_availability = read_csv("time_series/original_pv_availability.csv")
-        self.original_demand = read_csv("time_series/bdew_demand.csv")
+        self.orignal_pv_availability = np.loadtxt("time_series/original_pv_availability.csv")
+        self.original_demand = np.loadtxt("time_series/bdew_demand.csv")
 
         # calculate deltas
         self.delta_pv_availability = self.attacked_pv_availability - self.orignal_pv_availability
@@ -701,7 +688,7 @@ class Algorithm:
         plt.xlabel("Time [h]")
         plt.ylabel("Battery usage [kWh]")
         plt.title("Battery usage per hour")
-        plt.legend(loc=0)
+        plt.legend(loc=1)
 
     def gen_plot_energy_pv(self):
         plt.figure()
@@ -709,7 +696,7 @@ class Algorithm:
         plt.xlabel("Time [h]")
         plt.ylabel("PV energy [kW]")
         plt.title("PV energy per hour")
-        plt.legend(loc=0)
+        plt.legend(loc=1)
 
     def gen_plot_energypv_battery(self):
         fig, ax1 = plt.subplots()
@@ -722,7 +709,7 @@ class Algorithm:
         ax2.set_ylabel("PV Energy [kW]")
         ax2.plot(self.energy_pv, label="PV Energy per hour", linestyle="solid", color="tab:orange")
 
-        ax1.legend(loc=0)
-        ax2.legend(loc=0)
+        ax1.legend(loc=1)
+        ax2.legend(loc=1)
 
         plt.title("Battery usage and PV energy per hour")
