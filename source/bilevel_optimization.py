@@ -460,6 +460,11 @@ class Algorithm:
         if self.weight_pv_availability + self.weight_demand != 1:
             raise ValueError("Sum of the weights must be one (0 - low weighting, 1 - high weighting)")
 
+        if self.weight_pv_availability == 0:
+            self.sum_pv_availability_zero = False
+        if self.weight_demand == 0:
+            self.sum_demand_zero = False
+
         # switching a one to a zero and vice versa to ensure that it will be correctly used in objective function
         if self.weight_pv_availability == 0 or self.weight_pv_availability == 1:
             self.weight_pv_availability = 1 - self.weight_pv_availability
