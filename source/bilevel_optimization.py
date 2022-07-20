@@ -76,25 +76,31 @@ class Algorithm:
         self.d = d
 
     def calculate(self):
+        # initialize iterative algorithm and time measurement
         start_time = time.time()
 
-        model = self.calculate_iteration()
+        # get model data including warm binaries, Capacity_PV,0 and initial capex
+        warm_binaries, Cap_PV_0, capex = self.get_model_data()
+        print("Capex ist: " + str(capex))
 
-        # iterative and stuff like this
+        iteration_count = 0
+        while not self.check_target(capex):
+            model = self.calculate_iteration(warm_binaries, Cap_PV_0)
+            self.create_timeseries(model)
+            self.update_model()
+            warm_binaries, Cap_PV_0, capex = self.get_model_data()
+            print("Capex ist: " + str(capex))
+            iteration_count += 1
+
         end_time = time.time()
         execution_time = end_time - start_time
-        self.print_output(model, execution_time)
+        self.print_output(model, execution_time, iteration_count)
+        self.create_statistics(model)  # original time series + battery usage + energy pv
 
-        self.create_timeseries(model)
-        self.create_statistics(model)
-
-    def calculate_iteration(self):
+    def calculate_iteration(self, warm_binaries, Cap_PV_0):
         """
         finds minimal delta with PyPSA + indptr/indices
         """
-
-        # get model data including warm binaries and Capacity_PV,0
-        warm_binaries, Cap_PV_0 = self.get_model_data()
 
         # initialize instance of outer optimization model
         model = pyo.ConcreteModel()
@@ -417,11 +423,28 @@ class Algorithm:
         binaries = g.astype(int)
         Cap_PV_0 = pyo.value(model.x[self.all_variables["CapacityPV"]])
 
-        return binaries, Cap_PV_0
+        # calculate capex to check if target is reached
+        capex = self.get_capex(model)
 
-    # checks if target is hit
-    def check_target(self):
-        print("Check Target")
+        return binaries, Cap_PV_0, capex
+
+    # returns capex with actual solution
+    def get_capex(self, model):
+        index_pv = self.all_variables["CapacityPV"]
+        index_battery = self.all_variables["CapacityBattery"]
+
+        capacity_pv = pyo.value(model.x[index_pv])
+        capacity_battery = pyo.value(model.x[index_battery])
+        capex = self.c[0, index_pv] * capacity_pv + self.c[0, index_battery] * capacity_battery
+
+        return capex
+
+    # checks if target is hit (minus 1e-4 because of rounding errors)
+    def check_target(self, capex):
+        if self.target_capex - 1e-4 <= capex:
+            return True
+        else:
+            return False
 
     # evtl. auch draußen wie bei Johnny
     def check_valid_params(self):
@@ -434,7 +457,7 @@ class Algorithm:
         delta_pv_availability = []
         for index in self.range_limeqpv_b:
             delta_pv_availability.append(pyo.value(model.deltab[index]))
-        self.delta_pv_availability = np.array(delta_pv_availability)
+        delta_pv_availability = np.array(delta_pv_availability)
 
         attacked_pv_availability = []
         col = self.all_variables["CapacityPV"]
@@ -454,7 +477,7 @@ class Algorithm:
         delta_demand = []
         for index in self.range_energyeq_d:
             delta_demand.append(pyo.value(model.deltad[index]))
-        self.delta_demand = np.array(delta_demand)
+        delta_demand = np.array(delta_demand)
 
         attacked_demand = []
         if self.attack_type == "absolute":
@@ -469,10 +492,27 @@ class Algorithm:
         self.demand_total = attacked_demand.sum()
         self.attacked_demand = attacked_demand / self.demand_total
 
+    # updates model matrices according to new time series
+    def update_model(self):
+        # update pv availability in matrix A
+        col = self.all_variables["CapacityPV"]
+        self.A = self.A.tolil()
+        for count, row in enumerate(self.range_limeqpv_b):
+            self.A[row, col] = -self.attacked_pv_availability[count]
+        self.A = self.A.tocsr()
+
+        # update demand in vector d
+        for count, index in enumerate(self.range_energyeq_d):
+            self.d[index] = self.demand_total * self.attacked_demand[count]
+
     def create_statistics(self, model):
         # get original time series
         self.orignal_pv_availability = read_csv("time_series/TS_PVAvail.csv")
         self.original_demand = read_csv("time_series/demand_bdew.csv")
+
+        # calculate deltas
+        self.delta_pv_availability = self.attacked_pv_availability - self.orignal_pv_availability
+        self.delta_demand = self.attacked_demand - self.original_demand
 
         # calculate battery usage
         start_range = self.all_variables["EnergyBattery(0)"]
@@ -496,20 +536,18 @@ class Algorithm:
 
         self.energy_pv = np.array(energy_pv)
 
-    def print_output(self, model, execution_time):
+    def print_output(self, model, execution_time, iteration_count):
         index_pv = self.all_variables["CapacityPV"]
         index_battery = self.all_variables["CapacityBattery"]
+        capex = self.get_capex(model)
 
-        capacity_pv = pyo.value(model.x[index_pv])
-        capacity_battery = pyo.value(model.x[index_battery])
-        capex = self.c[0, index_pv] * capacity_pv + self.c[0, index_battery] * capacity_battery
-
-        print("\n\nCapacity for the PV module: " + str(capacity_pv) + " kW")
-        print("Capacity for the battery module: " + str(capacity_battery) + " kWh")
+        print("\n\nCapacity for the PV module: " + str(pyo.value(model.x[index_pv])) + " kW")
+        print("Capacity for the battery module: " + str(pyo.value(model.x[index_battery])) + " kWh")
         print("\nCost of PV module per day: " + str(self.c[0, index_pv]) + " €")
         print("Cost of Battery module per day: " + str(self.c[0, index_battery]) + " €")
         print("CAPEX per day: " + str(capex) + " €")
         print("\nExecution of the algorithm took " + str(round(execution_time, 2)) + " seconds")
+        print("Algorithm converged after " + str(iteration_count) + " iterations\n\n")
 
     def gen_plot_timeseries(self):
         plt.figure()
@@ -536,14 +574,14 @@ class Algorithm:
         plt.title("Violin-plot of original PV availability")
         original_pv_availability_zero = self.orignal_pv_availability[self.orignal_pv_availability != 0]
         ax = sns.violinplot(data=original_pv_availability_zero, orient="v", cut=0.2)
-        ax.set_xticklabels([r"Original annual PV availability $\in$ (0,1]"])
+        ax.set_xticklabels([r"Annual PV availability $\in$ (0,1]"])
         ax.set(ylabel=r"$\mathbf{availability}_{PV}$ per hour [%]")
 
         # Violin-plot of original annual demand
         plt.figure()
         plt.title("Violin-plot of original annual demand")
         ax = sns.violinplot(data=self.demand_total * self.original_demand, orient="v")
-        ax.set_xticklabels(["Original annual demand"])
+        ax.set_xticklabels(["Annual demand"])
         ax.set(ylabel=r"$\mathbf{demand}$ per hour [kWh]")
 
         # Violin-plot of attack variable \Delta PV availability

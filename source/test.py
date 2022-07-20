@@ -20,10 +20,8 @@ class Testclass:
         self.sum_pv_availability_zero = config["additional_constraints"]["sum_pv_availability_zero"]
 
     def script(self):
-        print(self.weight_pv_availability)
-        print(self.big_m)
-        if self.attack_type == "absolute":
-            print("String if hat geklappt")
+        print(self.target_capex - 1e-4)
+        print(1e-4)
 
 
 test = Testclass("../configs/masterthesis.json")
