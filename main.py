@@ -6,7 +6,7 @@ from source.bilevel_optimization import Algorithm
 generate_plots_thesis = True
 generate_additional_plots = True
 
-s1 = Algorithm("configs/game_00.json")
+s1 = Algorithm("configs/masterthesis.json")
 s1.calculate()
 
 if generate_plots_thesis:

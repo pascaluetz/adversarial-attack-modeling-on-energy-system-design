@@ -710,6 +710,5 @@ class Algorithm:
         ax2.plot(self.energy_pv, label="PV Energy per hour", linestyle="solid", color="tab:orange")
 
         ax1.legend(loc=1)
-        ax2.legend(loc=1)
-
+        ax2.legend(loc=4)
         plt.title("Battery usage and PV energy per hour")
