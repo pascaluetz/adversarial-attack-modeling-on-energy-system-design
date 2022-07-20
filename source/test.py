@@ -27,5 +27,4 @@ class Testclass:
 
 
 test = Testclass("../configs/masterthesis.json")
-
 test.script()

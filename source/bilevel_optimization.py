@@ -5,16 +5,32 @@ absolute mip gap to the optimal solution
 - In function run it is possible to adjust the output data of the model
 """
 
+import csv
 import json
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pyomo.environ as pyo
 import pypsa.opt as pypsa
+import seaborn as sns
+import statsmodels.api as sm
 from pyomo.opt import SolverFactory
 from scipy.sparse import csr_matrix
 
 from tools import convert_mps_to_array as converter
+
+
+def read_csv(csv_name):
+    array = []
+
+    with open(csv_name, "r") as file:
+        reader = csv.reader(file, delimiter="\n")
+        for row in reader:
+            array.append(float(row[0]))
+
+    array = np.array(array)
+    return array
 
 
 class Algorithm:
@@ -63,14 +79,14 @@ class Algorithm:
         start_time = time.time()
 
         model = self.calculate_iteration()
-        print("calculation done")
-
-        print(model.pprint())
 
         # iterative and stuff like this
         end_time = time.time()
         execution_time = end_time - start_time
-        print(execution_time)
+        self.print_output(model, execution_time)
+
+        self.create_timeseries(model)
+        self.create_statistics(model)
 
     def calculate_iteration(self):
         """
@@ -415,46 +431,49 @@ class Algorithm:
     # Time Series berechnen (so wie original bei Demand teilen) und ausgeben/speichern für weiterverarbeitung
     def create_timeseries(self, model):
         # create new pv availability time series
-        change_pv_availability = []
+        delta_pv_availability = []
         for index in self.range_limeqpv_b:
-            change_pv_availability.append(pyo.value(model.deltab[index]))
-        change_pv_availability = np.array(change_pv_availability)
+            delta_pv_availability.append(pyo.value(model.deltab[index]))
+        self.delta_pv_availability = np.array(delta_pv_availability)
 
         attacked_pv_availability = []
         col = self.all_variables["CapacityPV"]
         if self.attack_type == "absolute":
             for count, index in enumerate(self.range_limeqpv_b):
-                attacked_pv_availability.append(-self.A[index, col] + change_pv_availability[count])
+                attacked_pv_availability.append(-self.A[index, col] + delta_pv_availability[count])
 
-        elif self.attack_type == "relativ":
+        elif self.attack_type == "relative":
             for count, index in enumerate(self.range_limeqpv_b):
                 attacked_pv_availability.append(
-                    -self.A[index, col] + -self.A[index, col] * change_pv_availability[count]
+                    -self.A[index, col] + -self.A[index, col] * delta_pv_availability[count]
                 )
 
-        attacked_pv_availability = np.array(attacked_pv_availability)
+        self.attacked_pv_availability = np.array(attacked_pv_availability)
 
-        # !!!!!!!!!!!!!!!!!!!!! DEMAND TEILEN!!!!!!!!!!!!!!!!!!
         # create new demand time series
-        change_demand = []
+        delta_demand = []
         for index in self.range_energyeq_d:
-            change_demand.append(pyo.value(model.deltad[index]))
-        change_demand = np.array(change_demand)
+            delta_demand.append(pyo.value(model.deltad[index]))
+        self.delta_demand = np.array(delta_demand)
 
         attacked_demand = []
         if self.attack_type == "absolute":
             for count, index in enumerate(self.range_energyeq_d):
-                attacked_demand.append(self.d[index] + change_demand[count])
+                attacked_demand.append(self.d[index] + delta_demand[count])
 
-        elif self.attack_type == "relativ":
+        elif self.attack_type == "relative":
             for count, index in enumerate(self.range_energyeq_d):
-                attacked_demand.append(self.d[index] + self.d[index] * change_demand[count])
+                attacked_demand.append(self.d[index] + self.d[index] * delta_demand[count])
 
         attacked_demand = np.array(attacked_demand)
-
-        return attacked_pv_availability, attacked_demand
+        self.demand_total = attacked_demand.sum()
+        self.attacked_demand = attacked_demand / self.demand_total
 
     def create_statistics(self, model):
+        # get original time series
+        self.orignal_pv_availability = read_csv("time_series/TS_PVAvail.csv")
+        self.original_demand = read_csv("time_series/demand_bdew.csv")
+
         # calculate battery usage
         start_range = self.all_variables["EnergyBattery(0)"]
         end_range = self.all_variables["EnergyBattery(8759)"]
@@ -464,8 +483,7 @@ class Algorithm:
         for index in range_battery:
             battery_usage.append(pyo.value(model.x[index]))
 
-        battery_usage = np.array(battery_usage)
-        np.savetxt("battery_usage.csv", battery_usage, delimiter=",")
+        self.battery_usage = np.array(battery_usage)
 
         # calculate energy of solar cell
         start_range = self.all_variables["EnergyPV(0)"]
@@ -476,8 +494,7 @@ class Algorithm:
         for index in range_energy_pv:
             energy_pv.append(pyo.value(model.x[index]))
 
-        energy_pv = np.array(energy_pv)
-        np.savetxt("energy_pv.csv", energy_pv, delimiter=",")
+        self.energy_pv = np.array(energy_pv)
 
     def print_output(self, model, execution_time):
         index_pv = self.all_variables["CapacityPV"]
@@ -493,3 +510,77 @@ class Algorithm:
         print("Cost of Battery module per day: " + str(self.c[0, index_battery]) + " €")
         print("CAPEX per day: " + str(capex) + " €")
         print("\nExecution of the algorithm took " + str(round(execution_time, 2)) + " seconds")
+
+    def gen_plot_timeseries(self):
+        plt.figure()
+        plt.plot(self.attacked_pv_availability, label=r"Attacked $\mathbf{availability}_{PV}$", linestyle="solid")
+        plt.plot(self.orignal_pv_availability, label=r"Original $\mathbf{availability}_{PV}$", linestyle="solid")
+        plt.xlabel("Time [h]")
+        plt.ylabel(r"$\mathbf{availability}_{PV}$ [%]")
+        plt.title("Original PV availability and attacked PV availability per hour")
+        plt.legend()
+        # plt.xlim(1296, 1464)
+
+        plt.figure()
+        plt.plot(self.demand_total * self.attacked_demand, label=r"Attacked $\mathbf{demand}$", linestyle="solid")
+        plt.plot(self.demand_total * self.original_demand, label=r"Original $\mathbf{demand}$", linestyle="solid")
+        plt.xlabel("Time [h]")
+        plt.ylabel(r"$\mathbf{demand}$ [kWh]")
+        plt.title("Original demand and attacked demand per hour")
+        plt.legend()
+        # plt.xlim(1296, 1464)
+
+    def gen_plot_violin(self):
+        # Violin-plot of original PV availability without zero
+        plt.figure()
+        plt.title("Violin-plot of original PV availability")
+        original_pv_availability_zero = self.orignal_pv_availability[self.orignal_pv_availability != 0]
+        ax = sns.violinplot(data=original_pv_availability_zero, orient="v", cut=0.2)
+        ax.set_xticklabels([r"Original annual PV availability $\in$ (0,1]"])
+        ax.set(ylabel=r"$\mathbf{availability}_{PV}$ per hour [%]")
+
+        # Violin-plot of original annual demand
+        plt.figure()
+        plt.title("Violin-plot of original annual demand")
+        ax = sns.violinplot(data=self.demand_total * self.original_demand, orient="v")
+        ax.set_xticklabels(["Original annual demand"])
+        ax.set(ylabel=r"$\mathbf{demand}$ per hour [kWh]")
+
+        # Violin-plot of attack variable \Delta PV availability
+        plt.figure()
+        plt.title(r"Violin-plot of attack variable $\Delta \mathbf{availability}_{PV}$")
+        ax = sns.violinplot(data=self.delta_pv_availability * 100, orient="v")
+        ax.set_xticklabels([r"Attack variable $\Delta \mathbf{availability}_{PV}$"])
+        ax.set(ylabel=r"$\Delta \mathbf{availability}_{PV}$ [p.p.]")
+
+        # Violin-plot of attack variable \Delta demand
+        plt.figure()
+        plt.title(r"Violin-plot of attack variable $\Delta \mathbf{demand}$")
+        ax = sns.violinplot(data=self.delta_demand * 1000, orient="v")
+        ax.set_xticklabels([r"Attack variable $\Delta \mathbf{demand}$"])
+        ax.set(ylabel=r"$\Delta \mathbf{demand}$ [Wh]")
+
+    def gen_plot_regression(self):
+        # delete night-time data
+        night_data = self.orignal_pv_availability == 0  # true if night
+        indices = np.where(night_data)[0]  # indices of true/night data
+
+        delta_pv_availability_day = np.delete(self.delta_pv_availability, indices)
+        delta_demand_day = np.delete(self.delta_demand, indices)
+
+        delta_pv_availability_day = delta_pv_availability_day * 100  # convert from percent into p.p.
+        delta_demand_day = delta_demand_day * 1000  # convert from kWh to Wh
+
+        regression = sm.OLS(delta_demand_day, sm.add_constant(delta_pv_availability_day)).fit()
+        print(regression.summary())
+
+        plt.figure()
+        plt.title("Relationship of the attack variables shown in a regression with intercept")
+        plt.scatter(delta_pv_availability_day, delta_demand_day)
+        plt.plot(
+            delta_pv_availability_day,
+            regression.params[0] + regression.params[1] * delta_pv_availability_day,
+            color="orange",
+        )
+        plt.xlabel(r"$\Delta \mathbf{availability}_{PV}^{day}$ [p.p.]")
+        plt.ylabel(r"$\Delta \mathbf{demand}^{day}$ [Wh]")
