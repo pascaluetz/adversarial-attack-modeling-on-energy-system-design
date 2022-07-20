@@ -535,16 +535,18 @@ class Algorithm:
 
     # updates model matrices according to new time series
     def update_model(self):
-        # update pv availability in matrix A
-        col = self.all_variables["CapacityPV"]
-        self.A = self.A.tolil()
-        for count, row in enumerate(self.range_limeqpv_b):
-            self.A[row, col] = -self.attacked_pv_availability[count]
-        self.A = self.A.tocsr()
+        if self.weight_pv_availability != 1:
+            # update pv availability in matrix A
+            col = self.all_variables["CapacityPV"]
+            self.A = self.A.tolil()
+            for count, row in enumerate(self.range_limeqpv_b):
+                self.A[row, col] = -self.attacked_pv_availability[count]
+            self.A = self.A.tocsr()
 
-        # update demand in vector d
-        for count, index in enumerate(self.range_energyeq_d):
-            self.d[index] = self.demand_total * self.attacked_demand[count]
+        if self.weight_demand != 1:
+            # update demand in vector d
+            for count, index in enumerate(self.range_energyeq_d):
+                self.d[index] = self.demand_total * self.attacked_demand[count]
 
     def create_statistics(self, model):
         # get original time series
