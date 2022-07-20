@@ -15,6 +15,7 @@ converter should be adjusted to it:
 """
 
 
+import numpy as np
 from natsort import natsorted
 from scipy.sparse import csr_matrix
 
@@ -46,6 +47,10 @@ def getListOfVariablesAndBounds(model_data):
     # sort the list of variables
     all_variables = natsorted(all_variables)
     bounded_variables = natsorted(bounded_variables)
+
+    # save as dictionary
+    all_variables = dict(zip(all_variables, range(0, len(all_variables))))
+    bounded_variables = dict(zip(bounded_variables, range(0, len(bounded_variables))))
 
     return all_variables, bounded_variables
 
@@ -170,22 +175,19 @@ def getDictAndMatrix(matrix_list, all_variables):
     # get a sorted list of all row names included in the matrix
     # this is later used as a dictionary to assign a unique number to each equation name
     row_names = natsorted(list(set(rows)))
-    row_names_as_dict = dict(zip(row_names, range(0, len(row_names))))
-
-    # all_variables as dict to speed up
-    all_variables_as_dict = dict(zip(all_variables, range(0, len(all_variables))))
+    row_names = dict(zip(row_names, range(0, len(row_names))))
 
     # convert columns (=> variables) into numbers for further use with csr_matrix
     # all_variables works as a dictionary and converts variable names into a unique number
     cols_matrix = []
     for col in cols:
-        cols_matrix.append(all_variables_as_dict[col])
+        cols_matrix.append(all_variables[col])
 
     # convert rows (=> equations) into numbers for further use with csr_matrix
     # row_names works as a dictionary and converts equation names into a unique number
     rows_matrix = []
     for row in rows:
-        rows_matrix.append(row_names_as_dict[row])
+        rows_matrix.append(row_names[row])
 
     # build sparse matrix (only filled sections are saved)
     sparse_matrix = csr_matrix((values, (rows_matrix, cols_matrix)), shape=(len(row_names), len(all_variables)))
@@ -193,27 +195,21 @@ def getDictAndMatrix(matrix_list, all_variables):
     return row_names, sparse_matrix
 
 
-# returns vectors as a sparse matrix
+# returns vectors as array
 def getDictAndVectors(vector_list, row_names):
     # unpack data
     rows = vector_list[0]
     values = vector_list[1]
 
-    # convert row_names to dict to speed up
-    row_names_as_dict = dict(zip(row_names, range(0, len(row_names))))
-
     # convert rows (=> equation names) into numbers (same as for the associated matrix) and save them in rows_vector
     # row_names works as a dictionary and converts equation names into a unique number
     rows_vector = []
     for row in rows:
-        rows_vector.append(row_names_as_dict[row])
+        rows_vector.append(row_names[row])
 
     # sort vector values according to rows_vector (so that it fits to the respective matrix)
     # and return the values in the right order
-    values_new = [value for row, value in sorted(zip(rows_vector, values))]
-
-    # convert list into sparse matrix
-    values_new = csr_matrix(values_new).transpose()
+    values_new = np.array([value for row, value in sorted(zip(rows_vector, values))])
 
     return values_new
 
@@ -244,8 +240,12 @@ def script(model_data, bounded_variables_as_equations):
 
 # should be done in python file where the matrices are needed
 def run():
-    model_data = open("model.mps", "r").readlines()
-    script(model_data, bounded_variables_as_equations=True)
+    model_data = open(r"..\source\model.mps", "r").readlines()
+    all_variables, bounded_variables, c_row_names, c, A_row_names, A, H_row_names, H, b, d = script(
+        model_data, bounded_variables_as_equations=True
+    )
+
+    return all_variables, bounded_variables, c_row_names, c, A_row_names, A, H_row_names, H, b, d
 
 
-# run()
+# all_variables, bounded_variables, c_row_names, c, A_row_names, A, H_row_names, H, b, d = run()

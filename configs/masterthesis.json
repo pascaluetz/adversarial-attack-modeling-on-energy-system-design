@@ -1,5 +1,5 @@
 {
-    "attacked_input": {
+    "weights_input": {
         "pv_availability": 0.5,
         "demand": 0.5
     },
@@ -9,8 +9,9 @@
         "target_capex": 751.32
     },
     "algorithm_settings": {
+        "big_m": 1e2,
         "warmstart": true,
-        "mip_gap": 1000000000
+        "mip_gap": 1e9
     },
     "additional_constraints": {
         "no_negative_demand": true,

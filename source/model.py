@@ -114,7 +114,7 @@ def HouseModel(
         )  # Energy Equation
 
     # write model to mps file
-    model.write(filename="model.mps", io_options={"symbolic_solver_labels": True})
+    model.write(filename=r"output\model.mps", io_options={"symbolic_solver_labels": True})
 
     # Change lines below to use other solver
     solver = SolverFactory("cplex")
