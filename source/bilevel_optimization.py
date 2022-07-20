@@ -443,7 +443,7 @@ class Algorithm:
         else:
             return False
 
-    # checks if the config is valid and adjusts weightings of the time series
+    # checks if the config is valid and adjust them if necessary
     def check_valid_params(self):
         if self.weight_pv_availability > 1:
             raise ValueError(
@@ -553,7 +553,7 @@ class Algorithm:
 
         # calculate deltas
         self.delta_pv_availability = self.attacked_pv_availability - self.orignal_pv_availability
-        self.delta_demand = self.attacked_demand - self.original_demand
+        self.delta_demand = self.demand_total * (self.attacked_demand - self.original_demand)
 
         # calculate battery usage
         start_range = self.all_variables["EnergyBattery(0)"]
