@@ -1,8 +1,5 @@
 """
-Runs PV House Model solved with Karush-Kuhn-Tucker Conditions and finds a minimal delta.
-- In function find_minimal_delta it is possible to set which variables should be manipulated and also the allowed
-absolute mip gap to the optimal solution
-- In function run it is possible to adjust the output data of the model
+Class for calculating a minimum perturbation required to reach a given target.
 """
 
 import json
@@ -30,6 +27,7 @@ class Algorithm:
         Initialize bi-level optimization with config and model parameters
         """
         # initialize configuration
+        print("Loading simulation configuration")
         config = json.load(open(config_file, "r"))
 
         self.weight_pv_availability = config["weights_input"]["pv_availability"]
@@ -104,6 +102,7 @@ class Algorithm:
         """
 
         print("Building bi-level optimization model")
+
         # initialize instance of outer optimization model
         model = pyo.ConcreteModel()
 
@@ -116,16 +115,6 @@ class Algorithm:
         # initialize attack variables
         model.deltab = pyo.Var(range(self.b.shape[0]), within=pyo.Reals)
         model.deltad = pyo.Var(range(self.d.shape[0]), within=pyo.Reals)
-
-        # MIMIZE MAX
-        # model.max_deltad = pyo.Var(within=pyo.NonNegativeReals)
-
-        # ABSOLUTE VALUE OBJECTIVE
-        # model.deltab_pos = pyo.Var(range(b.shape[0]), within=pyo.NonNegativeReals)
-        # model.deltab_neg = pyo.Var(range(b.shape[0]), within=pyo.NonPositiveReals)
-
-        # model.deltad_pos = pyo.Var(range(d.shape[0]), within=pyo.NonNegativeReals)
-        # model.deltad_neg = pyo.Var(range(d.shape[0]), within=pyo.NonPositiveReals)
 
         # save the amount of changed variables
         changed_deltas = 0
@@ -166,90 +155,146 @@ class Algorithm:
 
         manipulate_d = csr_matrix(manipulate_d).transpose()
 
-        # define objective
+        # Save factors to change as numpy for getting scaling coefficients in objective functions
+        b_numpy = []
+        col = self.all_variables["CapacityPV"]
+        for index in self.range_limeqpv_b:
+            b_numpy.append(-self.A[index, col])
+        b_numpy = np.array(b_numpy)
 
-        # ABSOLUTE VALUE OBJECTIVE
-        # factor = 1 / changed_deltas
-        # deltab_tuples = []
-        # for k in self.range_limeqpv_b:
-        #     deltab_tuples.append((factor, model.deltab_pos[k]))
-        #     deltab_tuples.append((-factor, model.deltab_neg[k]))
-        #
-        # deltad_tuples = []
-        # for k in self.range_energyeq_d:
-        #     deltad_tuples.append((factor, model.deltad_pos[k]))
-        #     deltad_tuples.append((-factor, model.deltad_neg[k]))
-        #
-        # objective = pypsa.LExpression(
-        #     (1 - self.weight_pv_availability) * deltab_tuples + (1 - self.weight_demand) * deltad_tuples
-        # )
-        # pypsa.l_objective(model, objective, pypsa.minimize)
+        d_numpy = []
+        for index in self.range_energyeq_d:
+            d_numpy.append(self.d[index])
+        d_numpy = np.array(d_numpy)
 
-        # QUADRATIC OBJECTIVE
+        # Additional variables for absolute and infinity norm objective
+        model.deltab_pos = pyo.Var(range(self.b.shape[0]), within=pyo.NonNegativeReals)
+        model.deltab_neg = pyo.Var(range(self.b.shape[0]), within=pyo.NonPositiveReals)
 
-        if self.attack_type == "absolute":
-            # calculating scaling coefficients
-            b_numpy = []
-            col = self.all_variables["CapacityPV"]
-            for index in self.range_limeqpv_b:
-                b_numpy.append(-self.A[index, col])
-            b_numpy = np.array(b_numpy)
+        model.deltad_pos = pyo.Var(range(self.d.shape[0]), within=pyo.NonNegativeReals)
+        model.deltad_neg = pyo.Var(range(self.d.shape[0]), within=pyo.NonPositiveReals)
 
-            d_numpy = []
-            for index in self.range_energyeq_d:
-                d_numpy.append(self.d[index])
-            d_numpy = np.array(d_numpy)
+        # Additional constraints for absolute and infinity norm objective
+        constraints = {}
+        for index in self.range_limeqpv_b:
+            lhs = pypsa.LExpression([(1, model.deltab[index])])
+            rhs = pypsa.LExpression([(1, model.deltab_pos[index]), (1, model.deltab_neg[index])])
+            constraints[index] = pypsa.LConstraint(lhs, "==", rhs)
+        pypsa.l_constraint(model, "DeltaBEQ", constraints, self.range_limeqpv_b)
 
-            model.size_delta = pyo.Objective(
-                expr=(1 - self.weight_pv_availability)
-                * sum(
-                    ((model.deltab[i] - b_numpy.min()) / (b_numpy.max() - b_numpy.min())) ** 2
-                    for i in self.range_limeqpv_b
+        constraints = {}
+        for index in self.range_energyeq_d:
+            lhs = pypsa.LExpression([(1, model.deltad[index])])
+            rhs = pypsa.LExpression([(1, model.deltad_pos[index]), (1, model.deltad_neg[index])])
+            constraints[index] = pypsa.LConstraint(lhs, "==", rhs)
+        pypsa.l_constraint(model, "DeltaDEQ", constraints, self.range_energyeq_d)
+
+        # Initialization of different objective functions
+        # Quadratic objective function
+        if self.objective == "quadratic":
+            if self.attack_type == "absolute":
+                model.objective = pyo.Objective(
+                    expr=(1 - self.weight_pv_availability)
+                    * sum(
+                        ((model.deltab[i] - b_numpy.min()) / (b_numpy.max() - b_numpy.min())) ** 2
+                        for i in self.range_limeqpv_b
+                    )
+                    + (1 - self.weight_demand)
+                    * sum(
+                        ((model.deltad[i] - d_numpy.min()) / (d_numpy.max() - d_numpy.min())) ** 2
+                        for i in self.range_energyeq_d
+                    ),
+                    sense=pyo.minimize,
                 )
-                + (1 - self.weight_demand)
-                * sum(
-                    ((model.deltad[i] - d_numpy.min()) / (d_numpy.max() - d_numpy.min())) ** 2
-                    for i in self.range_energyeq_d
-                ),
-                sense=pyo.minimize,
-            )
 
-        elif self.attack_type == "relative":
-            model.size_delta = pyo.Objective(
-                expr=(1 - self.weight_pv_availability) * sum(model.deltab[i] ** 2 for i in self.range_limeqpv_b)
-                + (1 - self.weight_demand) * sum(model.deltad[i] ** 2 for i in self.range_energyeq_d),
-                sense=pyo.minimize,
-            )
+            elif self.attack_type == "relative":
+                model.objective = pyo.Objective(
+                    expr=(1 - self.weight_pv_availability) * sum(model.deltab[i] ** 2 for i in self.range_limeqpv_b)
+                    + (1 - self.weight_demand) * sum(model.deltad[i] ** 2 for i in self.range_energyeq_d),
+                    sense=pyo.minimize,
+                )
 
-        # # MINIMIZE MAX FUNCTION
-        # objective = pypsa.LExpression([(1, model.max_deltad)])
-        # pypsa.l_objective(model, objective, pypsa.minimize)
+        # Absolute objective function
+        elif self.objective == "absolute":
+            # Set objective
+            if self.attack_type == "absolute":
+                model.objective = pyo.Objective(
+                    expr=(1 - self.weight_pv_availability)
+                    * sum(
+                        (model.deltab_pos[i] - model.deltab_neg[i] - b_numpy.min()) / (b_numpy.max() - b_numpy.min())
+                        for i in self.range_limeqpv_b
+                    )
+                    + (1 - self.weight_demand)
+                    * sum(
+                        (model.deltad_pos[i] - model.deltad_neg[i] - d_numpy.min()) / (d_numpy.max() - d_numpy.min())
+                        for i in self.range_energyeq_d
+                    ),
+                    sense=pyo.minimize,
+                )
 
-        # Constraints
+            elif self.attack_type == "relative":
+                deltab_tuples = []
+                for k in self.range_limeqpv_b:
+                    deltab_tuples.append((1, model.deltab_pos[k]))
+                    deltab_tuples.append((-1, model.deltab_neg[k]))
 
-        # # MINIMIZE MAX FUNCTION
-        # constraints = {}
-        # for index in self.range_energyeq_d:
-        #     lhs = pypsa.LExpression([(manipulate_d[index, 0], model.deltad_pos[index]),
-        #                              (-manipulate_d[index, 0], model.deltad_neg[index])])
-        #     rhs = pypsa.LExpression([(1, model.max_deltad)])
-        #     constraints[index] = pypsa.LConstraint(lhs, "<=", rhs)
-        # pypsa.l_constraint(model, "MaxDeltaD", constraints, self.range_energyeq_d)
+                deltad_tuples = []
+                for k in self.range_energyeq_d:
+                    deltad_tuples.append((1, model.deltad_pos[k]))
+                    deltad_tuples.append((-1, model.deltad_neg[k]))
 
-        # # ABSOLUTE VALUE OBJECTIVE
-        # constraints = {}
-        # for index in self.range_limeqpv_b:
-        #     lhs = pypsa.LExpression([(1, model.deltab[index])])
-        #     rhs = pypsa.LExpression([(1, model.deltab_pos[index]), (1, model.deltab_neg[index])])
-        #     constraints[index] = pypsa.LConstraint(lhs, "==", rhs)
-        # pypsa.l_constraint(model, "DeltaBEQ", constraints, self.range_limeqpv_b)
-        #
-        # constraints = {}
-        # for index in self.range_energyeq_d:
-        #     lhs = pypsa.LExpression([(1, model.deltad[index])])
-        #     rhs = pypsa.LExpression([(1, model.deltad_pos[index]), (1, model.deltad_neg[index])])
-        #     constraints[index] = pypsa.LConstraint(lhs, "==", rhs)
-        # pypsa.l_constraint(model, "DeltaDEQ", constraints, self.range_energyeq_d)
+                objective = pypsa.LExpression(
+                    (1 - self.weight_pv_availability) * deltab_tuples + (1 - self.weight_demand) * deltad_tuples
+                )
+
+                pypsa.l_objective(model, objective, pypsa.minimize)
+
+        # Minimize infinity norm objective
+        elif self.objective == "infinitynorm":
+            # Additional variables
+            model.max_deltab = pyo.Var(within=pyo.NonNegativeReals)
+            model.max_deltad = pyo.Var(within=pyo.NonNegativeReals)
+
+            # Set objective
+            if self.attack_type == "absolute":
+                model.objective = pyo.Objective(
+                    expr=(1 - self.weight_pv_availability)
+                    * ((model.max_deltab - b_numpy.min()) / (b_numpy.max() - b_numpy.min()))
+                    + (1 - self.weight_demand) * ((model.max_deltad - d_numpy.min()) / (d_numpy.max() - d_numpy.min())),
+                    sense=pyo.minimize,
+                )
+
+            elif self.attack_type == "relative":
+                model.objective = pyo.Objective(
+                    expr=(1 - self.weight_pv_availability) * model.max_deltab
+                    + (1 - self.weight_demand) * model.max_deltad,
+                    sense=pyo.minimize,
+                )
+
+            # Additional constraints
+            constraints = {}
+            for index in self.range_limeqpv_b:
+                lhs = pypsa.LExpression(
+                    [
+                        (manipulate_b[index, 0] / Cap_PV_0, model.deltab_pos[index]),
+                        (-manipulate_b[index, 0] / Cap_PV_0, model.deltab_neg[index]),
+                    ]
+                )
+                rhs = pypsa.LExpression([(1, model.max_deltab)])
+                constraints[index] = pypsa.LConstraint(lhs, "<=", rhs)
+            pypsa.l_constraint(model, "MaxDeltaB", constraints, self.range_limeqpv_b)
+
+            constraints = {}
+            for index in self.range_energyeq_d:
+                lhs = pypsa.LExpression(
+                    [
+                        (manipulate_d[index, 0], model.deltad_pos[index]),
+                        (-manipulate_d[index, 0], model.deltad_neg[index]),
+                    ]
+                )
+                rhs = pypsa.LExpression([(1, model.max_deltad)])
+                constraints[index] = pypsa.LConstraint(lhs, "<=", rhs)
+            pypsa.l_constraint(model, "MaxDeltaD", constraints, self.range_energyeq_d)
 
         # Primal feasibility
         # Bounded constraints
@@ -488,8 +533,8 @@ class Algorithm:
 
         if self.attack_type != "absolute" and self.attack_type != "relative":
             raise ValueError("Attack type has to be 'absolute' or 'relative'")
-        if self.objective != "absolute" and self.objective != "quadratic" and self.objective != "minimizemax":
-            raise ValueError("Objective type has to be 'absolute', 'quadratic' or 'minimizemax'")
+        if self.objective != "absolute" and self.objective != "quadratic" and self.objective != "infinitynorm":
+            raise ValueError("Objective type has to be 'absolute', 'quadratic' or 'infinitynorm'")
         if not isinstance(self.target_capex, (int, float)):
             raise TypeError("Target of CAPEX has to be an int or a float")
         if not isinstance(self.big_m, (int, float)):
