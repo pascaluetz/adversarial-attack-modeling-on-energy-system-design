@@ -16,8 +16,8 @@ class Testclass:
         self.no_negative_demand = config["additional_constraints"]["no_negative_demand"]
         self.no_negative_pv_availability = config["additional_constraints"]["no_negative_pv_availability"]
         self.pv_availability_smaller_one = config["additional_constraints"]["pv_availability_smaller_one"]
-        self.sum_demand_zero = config["additional_constraints"]["sum_demand_zero"]
-        self.sum_pv_availability_zero = config["additional_constraints"]["sum_pv_availability_zero"]
+        self.sum_demand_zero = config["additional_constraints"]["sum_delta_demand_zero"]
+        self.sum_pv_availability_zero = config["additional_constraints"]["sum_delta_pv_availability_zero"]
 
     def script(self):
         print("Test")

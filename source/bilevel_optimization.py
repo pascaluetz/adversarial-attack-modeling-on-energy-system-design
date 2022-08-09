@@ -43,8 +43,8 @@ class Algorithm:
         self.no_negative_pv_availability = config["additional_constraints"]["no_negative_pv_availability"]
         self.no_negative_demand = config["additional_constraints"]["no_negative_demand"]
         self.pv_availability_smaller_one = config["additional_constraints"]["pv_availability_smaller_one"]
-        self.sum_pv_availability_zero = config["additional_constraints"]["sum_pv_availability_zero"]
-        self.sum_demand_zero = config["additional_constraints"]["sum_demand_zero"]
+        self.sum_delta_pv_availability_zero = config["additional_constraints"]["sum_delta_pv_availability_zero"]
+        self.sum_delta_demand_zero = config["additional_constraints"]["sum_delta_demand_zero"]
 
         self.check_valid_params()
 
@@ -52,7 +52,7 @@ class Algorithm:
         model_parameters = open("source/model.mps", "r").readlines()
 
         all_variables, bounded_variables, c_row_names, c, A_row_names, A, H_row_names, H, b, d = converter.script(
-            model_parameters, bounded_variables_as_equations=True
+            model_parameters
         )
 
         self.all_variables = all_variables
@@ -65,22 +65,35 @@ class Algorithm:
         self.d = d
 
     def calculate(self):
+        print("Calculations starts")
+
         # initialize iterative algorithm and time measurement
         start_time = time.time()
 
         # get model data including warm binaries, Capacity_PV,0 and initial capex
+        print(
+            "Solve original model with initial time series and calculate model data (warm binaries, CAP_PV_0 and CAPEX)"
+        )
         warm_binaries, Cap_PV_0, capex = self.get_model_data()
 
         iteration_count = 0
+        print("Checking if target is reached")
         while not self.check_target(capex):
+            print("\nTarget is not reached -> start of iteration " + str(iteration_count + 1))
             model = self.calculate_iteration(warm_binaries, Cap_PV_0)
             self.create_timeseries(model)
             self.update_model()
+            print(
+                "Solve original model with new time series and calculate new model data"
+                "(warm binaries, CAP_PV_0 and CAPEX)"
+            )
             warm_binaries, Cap_PV_0, capex = self.get_model_data()
             iteration_count += 1
+            print("Checking if target is reached")
 
         end_time = time.time()
         execution_time = end_time - start_time
+        print("\nTarget is reached -> generating output and creating plots")
         self.create_statistics(model)  # original time series + battery usage + energy pv
         self.save_output()
         self.print_output(model, execution_time, iteration_count)
@@ -90,6 +103,7 @@ class Algorithm:
         finds minimal delta with PyPSA + indptr/indices
         """
 
+        print("Building bi-level optimization model")
         # initialize instance of outer optimization model
         model = pyo.ConcreteModel()
 
@@ -321,13 +335,13 @@ class Algorithm:
                 constraints[index] = pypsa.LConstraint(lhs, "<=")
             pypsa.l_constraint(model, "NoAvailBiggerOne", constraints, self.range_limeqpv_b)
 
-        if self.sum_pv_availability_zero:
+        if self.sum_delta_pv_availability_zero:
             model.Sum_0_pv_availability = pyo.Constraint(
                 expr=sum((manipulate_b[index, 0] / Cap_PV_0) * model.deltab[index] for index in self.range_limeqpv_b)
                 == 0
             )
 
-        if self.sum_demand_zero:
+        if self.sum_delta_demand_zero:
             model.Sum_0_demand = pyo.Constraint(
                 expr=sum(manipulate_d[index, 0] * model.deltad[index] for index in self.range_energyeq_d) == 0
             )
@@ -346,7 +360,8 @@ class Algorithm:
         # solve problem
         solver = SolverFactory("cplex")
         solver.options["mip_tolerances_absmipgap"] = self.mip_gap
-        solver.solve(model, warmstart=self.warmstart, tee=True)
+        print("Solving bi-level optimization model")
+        solver.solve(model, warmstart=self.warmstart)
 
         return model
 
@@ -436,7 +451,7 @@ class Algorithm:
 
         return capex
 
-    # checks if target is hit (minus 1e-4 because of rounding errors)
+    # checks if target is reached (minus 1e-4 because of rounding errors)
     def check_target(self, capex):
         if self.target_capex - 1e-4 <= capex:
             return True
@@ -461,9 +476,9 @@ class Algorithm:
             raise ValueError("Sum of the weights must be one (0 - low weighting, 1 - high weighting)")
 
         if self.weight_pv_availability == 0:
-            self.sum_pv_availability_zero = False
+            self.sum_delta_pv_availability_zero = False
         if self.weight_demand == 0:
-            self.sum_demand_zero = False
+            self.sum_delta_demand_zero = False
 
         # switching a one to a zero and vice versa to ensure that it will be correctly used in objective function
         if self.weight_pv_availability == 0 or self.weight_pv_availability == 1:
@@ -487,8 +502,8 @@ class Algorithm:
             not type(self.no_negative_pv_availability) is bool
             or not type(self.no_negative_demand) is bool
             or not type(self.pv_availability_smaller_one) is bool
-            or not type(self.sum_pv_availability_zero) is bool
-            or not type(self.sum_demand_zero) is bool
+            or not type(self.sum_delta_pv_availability_zero) is bool
+            or not type(self.sum_delta_demand_zero) is bool
         ):
             raise TypeError("Additional constraint variables must be boolean variables")
 

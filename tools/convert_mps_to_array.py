@@ -215,7 +215,7 @@ def getDictAndVectors(vector_list, row_names):
 
 
 # return all necessary data to fill model
-def script(model_data, bounded_variables_as_equations):
+def script(model_data, bounded_variables_as_equations=True):
     # get data out of the mps file
     all_variables, bounded_variables = getListOfVariablesAndBounds(model_data)
     c, A, H = getListsOfcAH(model_data)
@@ -241,9 +241,7 @@ def script(model_data, bounded_variables_as_equations):
 # should be done in python file where the matrices are needed
 def run():
     model_data = open(r"..\source\model.mps", "r").readlines()
-    all_variables, bounded_variables, c_row_names, c, A_row_names, A, H_row_names, H, b, d = script(
-        model_data, bounded_variables_as_equations=True
-    )
+    all_variables, bounded_variables, c_row_names, c, A_row_names, A, H_row_names, H, b, d = script(model_data)
 
     return all_variables, bounded_variables, c_row_names, c, A_row_names, A, H_row_names, H, b, d
 

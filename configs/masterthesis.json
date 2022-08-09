@@ -17,7 +17,7 @@
         "no_negative_pv_availability": true,
         "no_negative_demand": true,
         "pv_availability_smaller_one": true,
-        "sum_pv_availability_zero": true,
-        "sum_demand_zero": true
+        "sum_delta_pv_availability_zero": true,
+        "sum_delta_demand_zero": true
     }
 }
