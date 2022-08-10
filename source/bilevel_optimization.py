@@ -1,5 +1,5 @@
 """
-Class for calculating a minimum perturbation required to reach a given target.
+Module that provides the functionality that is needed to calculate an adversarial attack and evaluate simulations.
 """
 
 import json
@@ -53,6 +53,7 @@ class Algorithm:
             model_parameters
         )
 
+        # save model data in self variables
         self.all_variables = all_variables
         self.c = c
         self.A_row_names = A_row_names
@@ -63,6 +64,10 @@ class Algorithm:
         self.d = d
 
     def calculate(self):
+        """
+        Lead through the methods to perform a calculation
+        """
+
         print("Calculations starts")
 
         # initialize iterative algorithm and time measurement
@@ -77,10 +82,22 @@ class Algorithm:
         iteration_count = 0
         print("Checking if target is reached")
         while not self.check_target(capex):
-            print("\nTarget is not reached -> start of iteration " + str(iteration_count + 1))
+            print(
+                "\nTarget ("
+                + str(self.target_capex)
+                + " €) is not reached ("
+                + str(round(capex, 2))
+                + " €) -> Start of iteration "
+                + str(iteration_count + 1)
+            )
+
+            # calculate one iteration and returns model results
             model = self.calculate_iteration(warm_binaries, Cap_PV_0)
+
+            # create new timeseries and include them in the model matrices
             self.create_timeseries(model)
             self.update_model()
+
             print(
                 "Solve original model with new time series and calculate new model data"
                 "(warm binaries, CAP_PV_0 and CAPEX)"
@@ -92,13 +109,17 @@ class Algorithm:
         end_time = time.time()
         execution_time = end_time - start_time
         print("\nTarget is reached -> generating output and creating plots")
-        self.create_statistics(model)  # original time series + battery usage + energy pv
+
+        # get original time series + calculate battery usage and energy of pv module
+        self.create_statistics(model)
+
+        # save data as csv and print basic results
         self.save_output()
         self.print_output(model, execution_time, iteration_count)
 
     def calculate_iteration(self, warm_binaries, Cap_PV_0):
         """
-        finds minimal delta with PyPSA + indptr/indices
+        Do a calculation iteration. The PyPSA package helps to build the constraints faster than with Pyomo.
         """
 
         print("Building bi-level optimization model")
@@ -119,13 +140,16 @@ class Algorithm:
         # save the amount of changed variables
         changed_deltas = 0
 
-        # define vectors to add manipulation (manipulate_vector * attack_variable)
+        # define vectors to add manipulation (manipulate_vector * attack_variable_vector)
+
         # manipulation of b in primal feasibility and complementary slackness
         manipulate_b = np.zeros(self.b.shape[0])
+        # get range of constraints "limEQpv"
         start_range = self.A_row_names["c_u_limEQpv(1)_"]
         end_range = self.A_row_names["c_u_limEQpv(8760)_"] + 1
         self.range_limeqpv_b = range(start_range, end_range)
 
+        # only put numbers in the manipulation vector if pv_availability is to be changed (active)
         if self.weight_pv_availability != 1:
             changed_deltas += end_range - start_range
             col = self.all_variables["CapacityPV"]
@@ -140,12 +164,14 @@ class Algorithm:
 
         # manipulation of d in primal feasibility
         manipulate_d = np.zeros(self.d.shape[0])
+        # get range of constraints "EnergyEQ"
         start_range = self.H_row_names["c_e_EnergyEQ(1)_"]
         end_range = self.H_row_names["c_e_EnergyEQ(8760)_"] + 1
         self.range_energyeq_d = range(start_range, end_range)
+
+        # only put numbers in the manipulation vector if weight_demand is to be changed (active)
         if self.weight_demand != 1:
             changed_deltas += end_range - start_range
-
             if self.attack_type == "absolute":
                 for index in self.range_energyeq_d:
                     manipulate_d[index] = 1
@@ -155,7 +181,7 @@ class Algorithm:
 
         manipulate_d = csr_matrix(manipulate_d).transpose()
 
-        # Save factors to change as numpy for getting scaling coefficients in objective functions
+        # save factors to change as numpy for getting scaling coefficients in objective functions
         b_numpy = []
         col = self.all_variables["CapacityPV"]
         for index in self.range_limeqpv_b:
@@ -167,14 +193,15 @@ class Algorithm:
             d_numpy.append(self.d[index])
         d_numpy = np.array(d_numpy)
 
-        # Additional variables for absolute and infinity norm objective
+        # additional variables and constraints for absolute and infinity norm objective
+        # variables
         model.deltab_pos = pyo.Var(range(self.b.shape[0]), within=pyo.NonNegativeReals)
         model.deltab_neg = pyo.Var(range(self.b.shape[0]), within=pyo.NonPositiveReals)
 
         model.deltad_pos = pyo.Var(range(self.d.shape[0]), within=pyo.NonNegativeReals)
         model.deltad_neg = pyo.Var(range(self.d.shape[0]), within=pyo.NonPositiveReals)
 
-        # Additional constraints for absolute and infinity norm objective
+        # constraints
         constraints = {}
         for index in self.range_limeqpv_b:
             lhs = pypsa.LExpression([(1, model.deltab[index])])
@@ -189,8 +216,10 @@ class Algorithm:
             constraints[index] = pypsa.LConstraint(lhs, "==", rhs)
         pypsa.l_constraint(model, "DeltaDEQ", constraints, self.range_energyeq_d)
 
-        # Initialization of different objective functions
-        # Quadratic objective function
+        # initialization of different objective functions
+        # always use normalization in objective function for absolute value changes
+
+        # quadratic objective function
         if self.objective == "quadratic":
             if self.attack_type == "absolute":
                 model.objective = pyo.Objective(
@@ -214,9 +243,8 @@ class Algorithm:
                     sense=pyo.minimize,
                 )
 
-        # Absolute objective function
+        # absolute objective function
         elif self.objective == "absolute":
-            # Set objective
             if self.attack_type == "absolute":
                 model.objective = pyo.Objective(
                     expr=(1 - self.weight_pv_availability)
@@ -233,29 +261,21 @@ class Algorithm:
                 )
 
             elif self.attack_type == "relative":
-                deltab_tuples = []
-                for k in self.range_limeqpv_b:
-                    deltab_tuples.append((1, model.deltab_pos[k]))
-                    deltab_tuples.append((-1, model.deltab_neg[k]))
-
-                deltad_tuples = []
-                for k in self.range_energyeq_d:
-                    deltad_tuples.append((1, model.deltad_pos[k]))
-                    deltad_tuples.append((-1, model.deltad_neg[k]))
-
-                objective = pypsa.LExpression(
-                    (1 - self.weight_pv_availability) * deltab_tuples + (1 - self.weight_demand) * deltad_tuples
+                model.objective = pyo.Objective(
+                    expr=(1 - self.weight_pv_availability)
+                    * sum(model.deltab_pos[i] - model.deltab_neg[i] for i in self.range_limeqpv_b)
+                    + (1 - self.weight_demand)
+                    * sum(model.deltad_pos[i] - model.deltad_neg[i] for i in self.range_energyeq_d),
+                    sense=pyo.minimize,
                 )
 
-                pypsa.l_objective(model, objective, pypsa.minimize)
-
-        # Minimize infinity norm objective
+        # minimize infinity norm objective function
         elif self.objective == "infinitynorm":
-            # Additional variables
+            # additional variables
             model.max_deltab = pyo.Var(within=pyo.NonNegativeReals)
             model.max_deltad = pyo.Var(within=pyo.NonNegativeReals)
 
-            # Set objective
+            # set objective
             if self.attack_type == "absolute":
                 model.objective = pyo.Objective(
                     expr=(1 - self.weight_pv_availability)
@@ -271,7 +291,7 @@ class Algorithm:
                     sense=pyo.minimize,
                 )
 
-            # Additional constraints
+            # additional constraints (absolute amount less than or equal to variable max)
             constraints = {}
             for index in self.range_limeqpv_b:
                 lhs = pypsa.LExpression(
