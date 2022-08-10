@@ -20,7 +20,7 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
 
-# configures the parameters of the original pv house model
+# configure the parameters of the original pv house model
 def getSettings():
     settingsDict = {
         "lifetime": 10,  # Years
@@ -100,7 +100,7 @@ def HouseModel(
             - model.SellEnergy[i]
         )  # Energy Equation
 
-    # write model to mps file
+    # Write model to mps file
     model.write(filename=r"model.mps", io_options={"symbolic_solver_labels": True})
 
     # Change lines below to use other solver
@@ -110,7 +110,7 @@ def HouseModel(
     return model
 
 
-# runs model
+# run model
 def run():
     start = time.time()
     settings = getSettings()

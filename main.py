@@ -6,9 +6,11 @@ from source.bilevel_optimization import Algorithm
 generate_plots_thesis = True
 generate_additional_plots = True
 
+# calculate adversarial attack
 s1 = Algorithm("configs/masterthesis.json")
 s1.calculate()
 
+# evaluation
 if generate_plots_thesis:
     s1.gen_plot_timeseries()
     s1.gen_plot_violin()

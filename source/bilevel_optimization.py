@@ -73,6 +73,8 @@ class Algorithm:
         self.delta_demand = None
         self.battery_usage = None
         self.energy_pv = None
+        self.range_limeqpv_b = None
+        self.range_energyeq_d = None
 
     def calculate(self):
         """

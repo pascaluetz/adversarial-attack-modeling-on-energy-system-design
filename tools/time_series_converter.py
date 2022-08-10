@@ -1,6 +1,6 @@
 """
-Converts PV availability and demand year times series to the average of each hour over 365 days. The result is are 24h
-time series for a smaller model.
+This converter transforms the PV availability and demand year times series to the average of each hour over 365 days.
+The results are 24-hour time series for a smaller model.
 """
 
 import numpy as np
@@ -21,6 +21,7 @@ DemandVal_24h = []
 for hour in hours:
     value_availability = 0
     value_demand = 0
+
     # sum up all values of each hour for 365 days
     for day in days:
         value_availability += availability_pv[hour + day * 24]

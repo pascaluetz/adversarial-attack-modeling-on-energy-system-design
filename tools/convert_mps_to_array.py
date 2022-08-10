@@ -1,12 +1,12 @@
 """
-This converter converts an LP problem from a *.mps file into the matrices for the following form:
+This converter converts an LP problem from an *.mps file into the matrices for the following form:
 min c^T * x
 s.t.
 Ax <= b
 Hx == d
 
-Following assumptions to the problem in the *.mps file are made. If the problem violates one of these assumptions, the
-converter should be adjusted to it:
+The following assumptions to the problem in the *.mps file are made. If the problem violates one of these assumptions,
+the converter should be adjusted to it:
 - Minimization Problem
 - Objective is named "cost"
 - Equation names made from pyomo (because of sorting)
@@ -20,7 +20,7 @@ from natsort import natsorted
 from scipy.sparse import csr_matrix
 
 
-# returns list of all variables and all variables with a lower bound of zero (>= 0)
+# return list of all variables and all variables with a lower bound of zero (>= 0)
 def getListOfVariablesAndBounds(model_data):
     # area of bounds in mps file
     start_line = model_data.index("BOUNDS\n") + 1
@@ -32,6 +32,7 @@ def getListOfVariablesAndBounds(model_data):
 
     for index, line in enumerate(model_data[start_line:end_line]):
         all_variables.append(line.split()[2])
+
         # only get variables with a lower bound (>= 0)
         sort = line.split()[0]
         if sort == "LO":
@@ -40,8 +41,8 @@ def getListOfVariablesAndBounds(model_data):
             pass
         else:
             print(
-                "WARNING: Something went wrong with sorting the bounds to build variables list and bounding variables"
-                "list!"
+                "WARNING: Something went wrong with sorting the variables to build variables list and bounding"
+                "variables list!"
             )
 
     # sort the list of variables
@@ -137,7 +138,7 @@ def getListOfbc(model_data):
     return b, d
 
 
-# modify A and b with variables with a lower bound of zero through adding conditions
+# add a constraint to A and b for every variable with a lower bound of zero
 def getAbmodified(A_data, b_data, bounded_variables):
     # unpack data
     A_cols = A_data[0]
@@ -149,7 +150,7 @@ def getAbmodified(A_data, b_data, bounded_variables):
 
     # iterate through every bounded variable
     for index, bounded_variable in enumerate(bounded_variables):
-        # add for every bounded variable an equation
+        # add equation for every bounded variable
         equation_name = "c_u_boundEQ(" + str(index) + ")_"
         A_cols.append(bounded_variable)
         A_rows.append(equation_name)
@@ -165,7 +166,7 @@ def getAbmodified(A_data, b_data, bounded_variables):
     return A, b
 
 
-# returns sparse matrix and description of rows
+# return sparse matrix and description of rows
 def getDictAndMatrix(matrix_list, all_variables):
     # unpack data
     cols = matrix_list[0]
@@ -195,7 +196,7 @@ def getDictAndMatrix(matrix_list, all_variables):
     return row_names, sparse_matrix
 
 
-# returns vectors as array
+# return vectors as array
 def getDictAndVectors(vector_list, row_names):
     # unpack data
     rows = vector_list[0]
@@ -230,7 +231,7 @@ def script(model_data, bounded_variables_as_equations=True):
     A_row_names, A = getDictAndMatrix(A, all_variables)
     H_row_names, H = getDictAndMatrix(H, all_variables)
 
-    # get sparse vector (also csr_matrix) of each vector
+    # get b and d vector
     # the row names (=> equation names) are defined through the row names of the respective matrix
     b = getDictAndVectors(b, A_row_names)
     d = getDictAndVectors(d, H_row_names)
