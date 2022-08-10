@@ -63,6 +63,17 @@ class Algorithm:
         self.b = b
         self.d = d
 
+        # initialize empty containers for later use
+        self.attacked_pv_availability = None
+        self.attacked_demand = None
+        self.demand_total = None
+        self.original_pv_availability = None
+        self.original_demand = None
+        self.delta_pv_availability = None
+        self.delta_demand = None
+        self.battery_usage = None
+        self.energy_pv = None
+
     def calculate(self):
         """
         Lead through the methods to perform a calculation
@@ -75,9 +86,9 @@ class Algorithm:
 
         # get model data including warm binaries, Capacity_PV,0 and initial capex
         print(
-            "Solve original model with initial time series and calculate model data (warm binaries, CAP_PV_0 and CAPEX)"
+            "Solve original model with initial time series and calculate model data (warm binaries, cap_pv_0 and CAPEX)"
         )
-        warm_binaries, Cap_PV_0, capex = self.get_model_data()
+        warm_binaries, cap_pv_0, capex = self.get_model_data()
 
         iteration_count = 0
         print("Checking if target is reached")
@@ -92,7 +103,7 @@ class Algorithm:
             )
 
             # calculate one iteration and returns model results
-            model = self.calculate_iteration(warm_binaries, Cap_PV_0)
+            model = self.calculate_iteration(warm_binaries, cap_pv_0)
 
             # create new timeseries and include them in the model matrices
             self.create_timeseries(model)
@@ -100,9 +111,9 @@ class Algorithm:
 
             print(
                 "Solve original model with new time series and calculate new model data"
-                "(warm binaries, CAP_PV_0 and CAPEX)"
+                "(warm binaries, cap_pv_0 and CAPEX)"
             )
-            warm_binaries, Cap_PV_0, capex = self.get_model_data()
+            warm_binaries, cap_pv_0, capex = self.get_model_data()
             iteration_count += 1
             print("Checking if target is reached")
 
@@ -117,7 +128,7 @@ class Algorithm:
         self.save_output()
         self.print_output(model, execution_time, iteration_count)
 
-    def calculate_iteration(self, warm_binaries, Cap_PV_0):
+    def calculate_iteration(self, warm_binaries, cap_pv_0):
         """
         Do a calculation iteration. The PyPSA package helps to build the constraints faster than with Pyomo.
         """
@@ -155,10 +166,10 @@ class Algorithm:
             col = self.all_variables["CapacityPV"]
             if self.attack_type == "absolute":
                 for row in self.range_limeqpv_b:
-                    manipulate_b[row] = Cap_PV_0
+                    manipulate_b[row] = cap_pv_0
             elif self.attack_type == "relative":
                 for row in self.range_limeqpv_b:
-                    manipulate_b[row] = Cap_PV_0 * -self.A[row, col]
+                    manipulate_b[row] = cap_pv_0 * -self.A[row, col]
 
         manipulate_b = csr_matrix(manipulate_b).transpose()
 
@@ -296,8 +307,8 @@ class Algorithm:
             for index in self.range_limeqpv_b:
                 lhs = pypsa.LExpression(
                     [
-                        (manipulate_b[index, 0] / Cap_PV_0, model.deltab_pos[index]),
-                        (-manipulate_b[index, 0] / Cap_PV_0, model.deltab_neg[index]),
+                        (manipulate_b[index, 0] / cap_pv_0, model.deltab_pos[index]),
+                        (-manipulate_b[index, 0] / cap_pv_0, model.deltab_neg[index]),
                     ]
                 )
                 rhs = pypsa.LExpression([(1, model.max_deltab)])
@@ -316,8 +327,8 @@ class Algorithm:
                 constraints[index] = pypsa.LConstraint(lhs, "<=", rhs)
             pypsa.l_constraint(model, "MaxDeltaD", constraints, self.range_energyeq_d)
 
-        # Primal feasibility
-        # Bounded constraints
+        # Karush-Kuhn-Tucker Conditions
+        # primal feasibility (bounded constraints)
         constraints = {}
         for row in range(self.A.shape[0]):
             list_of_tuples = [
@@ -329,7 +340,7 @@ class Algorithm:
 
         pypsa.l_constraint(model, "AEQS", constraints, range(self.A.shape[0]))
 
-        # Equal constraints
+        # primal feasibility (equal constraints)
         constraints = {}
         for row in range(self.H.shape[0]):
             list_of_tuples = [
@@ -341,9 +352,9 @@ class Algorithm:
 
         pypsa.l_constraint(model, "HEQS", constraints, range(self.H.shape[0]))
 
-        # Dual feasibility -> through lambdas within NonNegativeReals
+        # dual feasibility -> through lambdas within NonNegativeReals
 
-        # Complementary slackness
+        # complementary slackness
         constraints = {}
         for row in range(self.A.shape[0]):
             lhs = pypsa.LExpression([(-self.big_m, model.binary[row]), (1, model.lambdas[row])])
@@ -361,7 +372,7 @@ class Algorithm:
             constraints[row] = pypsa.LConstraint(lhs, "<=", rhs)
         pypsa.l_constraint(model, "SlackEQ2", constraints, range(self.A.shape[0]))
 
-        # Stationarity / Derivation of the Lagrange function
+        # stationarity
         constraints = {}
         AT = self.A.transpose().tocsr()
         HT = self.H.transpose().tocsr()
@@ -374,7 +385,7 @@ class Algorithm:
             constraints[col] = pypsa.LConstraint(lhs, "==")
         pypsa.l_constraint(model, "LagrangianEQ", constraints, range(len(self.all_variables)))
 
-        # additional constraints
+        # additional constraints activatable by configuration file
         if self.no_negative_demand:
             constraints = {}
             for index in self.range_energyeq_d:
@@ -386,7 +397,7 @@ class Algorithm:
             constraints = {}
             col = self.all_variables["CapacityPV"]
             for index in self.range_limeqpv_b:
-                lhs = pypsa.LExpression([(manipulate_b[index, 0] / Cap_PV_0, model.deltab[index])], -self.A[index, col])
+                lhs = pypsa.LExpression([(manipulate_b[index, 0] / cap_pv_0, model.deltab[index])], -self.A[index, col])
                 constraints[index] = pypsa.LConstraint(lhs, ">=")
             pypsa.l_constraint(model, "NoNegativAvail", constraints, self.range_limeqpv_b)
 
@@ -395,14 +406,14 @@ class Algorithm:
             col = self.all_variables["CapacityPV"]
             for index in self.range_limeqpv_b:
                 lhs = pypsa.LExpression(
-                    [(manipulate_b[index, 0] / Cap_PV_0, model.deltab[index])], -self.A[index, col] - 1
+                    [(manipulate_b[index, 0] / cap_pv_0, model.deltab[index])], -self.A[index, col] - 1
                 )
                 constraints[index] = pypsa.LConstraint(lhs, "<=")
             pypsa.l_constraint(model, "NoAvailBiggerOne", constraints, self.range_limeqpv_b)
 
         if self.sum_delta_pv_availability_zero:
             model.Sum_0_pv_availability = pyo.Constraint(
-                expr=sum((manipulate_b[index, 0] / Cap_PV_0) * model.deltab[index] for index in self.range_limeqpv_b)
+                expr=sum((manipulate_b[index, 0] / cap_pv_0) * model.deltab[index] for index in self.range_limeqpv_b)
                 == 0
             )
 
@@ -416,7 +427,7 @@ class Algorithm:
             expr=self.c[0, self.all_variables["CapacityPV"]] * model.x[self.all_variables["CapacityPV"]]
             + self.c[0, self.all_variables["CapacityBattery"]] * model.x[self.all_variables["CapacityBattery"]]
             >= self.target_capex
-        )  # CAPEX is 626.10 € per year in original model
+        )  # CAPEX is 626.11 € per year in original model
 
         # implement binary variables for warmstart
         for index in range(self.A.shape[0]):
@@ -432,10 +443,8 @@ class Algorithm:
 
     def get_model_data(self):
         """
-        Calculates Warm binaries !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        # function returns warm binaries for warmstart of MILP solver + Cap0
-        # PYPSA Constraints + using indptr/indices -> fastest
-        returns !!!!!!!!!!!
+        Perform a run of the original optimization problem and return the warm binaries for a warmstart of the
+        MILP solver, the optimal pv capacity (cap_pv_0) and the actual capex.
         """
         # create an instance of the model
         model = pyo.ConcreteModel()
@@ -498,14 +507,14 @@ class Algorithm:
             else:
                 g[i] = 0
         binaries = g.astype(int)
-        Cap_PV_0 = pyo.value(model.x[self.all_variables["CapacityPV"]])
+        cap_pv_0 = pyo.value(model.x[self.all_variables["CapacityPV"]])
 
-        # calculate capex to check if target is reached
+        # calculate capex to check if target is reached in a later step
         capex = self.get_capex(model)
 
-        return binaries, Cap_PV_0, capex
+        return binaries, cap_pv_0, capex
 
-    # returns capex with actual solution
+    # return capex with a given model solution
     def get_capex(self, model):
         index_pv = self.all_variables["CapacityPV"]
         index_battery = self.all_variables["CapacityBattery"]
@@ -516,14 +525,14 @@ class Algorithm:
 
         return capex
 
-    # checks if target is reached (minus 1e-4 because of rounding errors)
+    # check if target is reached (minus 1e-4 because of rounding errors)
     def check_target(self, capex):
         if self.target_capex - 1e-4 <= capex:
             return True
         else:
             return False
 
-    # checks if the config is valid and adjust them if necessary
+    # check if the config is valid and adjust them if necessary
     def check_valid_params(self):
         if self.weight_pv_availability > 1:
             raise ValueError(
@@ -540,12 +549,13 @@ class Algorithm:
         if self.weight_pv_availability + self.weight_demand != 1:
             raise ValueError("Sum of the weights must be one (0 - low weighting, 1 - high weighting)")
 
+        # delete specific constraints when variable is changed to prevent error
         if self.weight_pv_availability == 0:
             self.sum_delta_pv_availability_zero = False
         if self.weight_demand == 0:
             self.sum_delta_demand_zero = False
 
-        # switching a one to a zero and vice versa to ensure that it will be correctly used in objective function
+        # switch a one to a zero and vice versa to ensure that it will be correctly used in objective function
         if self.weight_pv_availability == 0 or self.weight_pv_availability == 1:
             self.weight_pv_availability = 1 - self.weight_pv_availability
         if self.weight_demand == 0 or self.weight_demand == 1:
@@ -572,7 +582,7 @@ class Algorithm:
         ):
             raise TypeError("Additional constraint variables must be boolean variables")
 
-    # Time Series berechnen (so wie original bei Demand teilen) und ausgeben/speichern für weiterverarbeitung
+    # calculate new time series from an actual model solution and save it in class variables for further processing
     def create_timeseries(self, model):
         # create new pv availability time series
         delta_pv_availability = []
@@ -613,7 +623,7 @@ class Algorithm:
         self.demand_total = attacked_demand.sum()
         self.attacked_demand = attacked_demand / self.demand_total
 
-    # updates model matrices according to new time series
+    # update model matrices according to new time series
     def update_model(self):
         if self.weight_pv_availability != 1:
             # update pv availability in matrix A
@@ -628,13 +638,14 @@ class Algorithm:
             for count, index in enumerate(self.range_energyeq_d):
                 self.d[index] = self.demand_total * self.attacked_demand[count]
 
+    # calculate deltas, battery usage and energy of pv plant
     def create_statistics(self, model):
         # get original time series
-        self.orignal_pv_availability = np.loadtxt("time_series/original_pv_availability.csv")
+        self.original_pv_availability = np.loadtxt("time_series/original_pv_availability.csv")
         self.original_demand = np.loadtxt("time_series/bdew_demand.csv")
 
         # calculate deltas
-        self.delta_pv_availability = self.attacked_pv_availability - self.orignal_pv_availability
+        self.delta_pv_availability = self.attacked_pv_availability - self.original_pv_availability
         self.delta_demand = self.demand_total * (self.attacked_demand - self.original_demand)
 
         # calculate battery usage
@@ -659,6 +670,7 @@ class Algorithm:
 
         self.energy_pv = np.array(energy_pv)
 
+    # save output time series to csv for later use
     def save_output(self):
         np.savetxt("source/output/delta_pv_availability.csv", self.delta_pv_availability, delimiter=",")
         np.savetxt("source/output/delta_demand.csv", self.delta_demand, delimiter=",")
@@ -667,6 +679,7 @@ class Algorithm:
         np.savetxt("source/output/battery_usage.csv", self.battery_usage, delimiter=",")
         np.savetxt("source/output/energy_pv.csv", self.energy_pv, delimiter=",")
 
+    # print basic output data
     def print_output(self, model, execution_time, iteration_count):
         index_pv = self.all_variables["CapacityPV"]
         index_battery = self.all_variables["CapacityBattery"]
@@ -680,10 +693,11 @@ class Algorithm:
         print("\nExecution of the algorithm took " + str(round(execution_time, 2)) + " seconds")
         print("Algorithm converged after " + str(iteration_count) + " iterations\n\n")
 
+    # plots attacked time series
     def gen_plot_timeseries(self):
         plt.figure()
         plt.plot(self.attacked_pv_availability, label=r"Attacked $\mathbf{availability}_{PV}$", linestyle="solid")
-        plt.plot(self.orignal_pv_availability, label=r"Original $\mathbf{availability}_{PV}$", linestyle="solid")
+        plt.plot(self.original_pv_availability, label=r"Original $\mathbf{availability}_{PV}$", linestyle="solid")
         plt.xlabel("Time [h]")
         plt.ylabel(r"$\mathbf{availability}_{PV}$ [%]")
         plt.title("Original PV availability and attacked PV availability per hour")
@@ -699,23 +713,24 @@ class Algorithm:
         plt.legend()
         # plt.xlim(1296, 1464)  # representative week in February
 
+    # plot violin-plots of original time series and attack variables
     def gen_plot_violin(self):
-        # Violin-plot of original PV availability without zero
+        # violin-plot of original PV availability without zero
         plt.figure()
         plt.title("Violin-plot of original PV availability")
-        original_pv_availability_zero = self.orignal_pv_availability[self.orignal_pv_availability != 0]
+        original_pv_availability_zero = self.original_pv_availability[self.original_pv_availability != 0]
         ax = sns.violinplot(data=original_pv_availability_zero, orient="v", cut=0.2)
         ax.set_xticklabels([r"Annual PV availability $\in$ (0,1]"])
         ax.set(ylabel=r"$\mathbf{availability}_{PV}$ per hour [%]")
 
-        # Violin-plot of original annual demand
+        # violin-plot of original annual demand
         plt.figure()
         plt.title("Violin-plot of original annual demand")
         ax = sns.violinplot(data=self.demand_total * self.original_demand, orient="v")
         ax.set_xticklabels(["Annual demand"])
         ax.set(ylabel=r"$\mathbf{demand}$ per hour [kWh]")
 
-        # Violin-plot of attack variable \Delta PV availability
+        # violin-plot of attack variable delta_pv_availability
         plt.figure()
         plt.title(r"Violin-plot of attack variable $\Delta \mathbf{availability}_{PV}$")
         if self.attack_type == "absolute":
@@ -726,7 +741,7 @@ class Algorithm:
             ax.set(ylabel=r"$\Delta \mathbf{availability}_{PV}$ [%]")
         ax.set_xticklabels([r"Attack variable $\Delta \mathbf{availability}_{PV}$"])
 
-        # Violin-plot of attack variable \Delta demand
+        # violin-plot of attack variable delta_demand
         plt.figure()
         plt.title(r"Violin-plot of attack variable $\Delta \mathbf{demand}$")
         if self.attack_type == "absolute":
@@ -737,9 +752,10 @@ class Algorithm:
             ax.set(ylabel=r"$\Delta \mathbf{demand}$ [%]")
         ax.set_xticklabels([r"Attack variable $\Delta \mathbf{demand}$"])
 
+    # perform regression between attack variables
     def gen_plot_regression(self):
         # delete night-time data
-        night_data = self.orignal_pv_availability == 0  # true if night
+        night_data = self.original_pv_availability == 0  # true if night
         indices = np.where(night_data)[0]  # indices of true/night data
 
         delta_pv_availability_day = np.delete(self.delta_pv_availability, indices)
@@ -769,6 +785,7 @@ class Algorithm:
             plt.xlabel(r"$\Delta \mathbf{availability}_{PV}^{day}$ [%]")
             plt.ylabel(r"$\Delta \mathbf{demand}^{day}$ [%]")
 
+    # plot battery usage
     def gen_plot_battery_usage(self):
         plt.figure()
         plt.plot(self.battery_usage, label="Battery usage per hour", linestyle="solid")
@@ -777,6 +794,7 @@ class Algorithm:
         plt.title("Battery usage per hour")
         plt.legend(loc=1)
 
+    # plot energy of pv plant
     def gen_plot_energy_pv(self):
         plt.figure()
         plt.plot(self.energy_pv, label="PV energy per hour", linestyle="solid")
@@ -785,6 +803,7 @@ class Algorithm:
         plt.title("PV energy per hour")
         plt.legend(loc=1)
 
+    # plot battery usage and energy of pv plant together
     def gen_plot_energypv_battery(self):
         fig, ax1 = plt.subplots()
 
