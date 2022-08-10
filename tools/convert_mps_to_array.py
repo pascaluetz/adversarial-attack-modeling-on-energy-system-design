@@ -1,5 +1,5 @@
 """
-This converter converts an LP problem from an *.mps file into the matrices for the following form:
+This converter transforms an LP problem from an *.mps file into the matrices for the following form:
 min c^T * x
 s.t.
 Ax <= b
@@ -7,7 +7,7 @@ Hx == d
 
 The following assumptions to the problem in the *.mps file are made. If the problem violates one of these assumptions,
 the converter should be adjusted to it:
-- Minimization Problem
+- Minimization problem
 - Objective is named "cost"
 - Equation names made from pyomo (because of sorting)
 - No greater than equation

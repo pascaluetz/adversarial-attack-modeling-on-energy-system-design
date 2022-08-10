@@ -121,19 +121,19 @@ def run():
 
     # print output
     print("Capacity for the PV module: " + str(pyo.value(solution.CapacityPV)) + " kW")
-    print("Capacity for the Battery module: " + str(pyo.value(solution.CapacityBattery)) + " kWh")
+    print("Capacity for the battery module: " + str(pyo.value(solution.CapacityBattery)) + " kWh")
 
     cost_PV_year = settings["cost_PV"] / settings["lifetime"]
     cost_BAT_year = settings["cost_Battery"] / settings["lifetime"]
     print("\nCost of PV module per year: " + str(cost_PV_year) + " €")
-    print("Cost of Battery module per year: " + str(cost_BAT_year) + " €")
+    print("Cost of battery module per year: " + str(cost_BAT_year) + " €")
     print(
-        "Capital expenditures: "
+        "CapEx per year: "
         + str(cost_PV_year * pyo.value(solution.CapacityPV) + cost_BAT_year * pyo.value(solution.CapacityBattery))
         + " €"
     )
 
-    print("\nThe execution of the model took " + str(round(end - start, 2)) + " seconds")
+    print("\nExecution of the model took " + str(round(end - start, 2)) + " seconds")
 
 
 run()
